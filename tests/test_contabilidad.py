@@ -228,3 +228,36 @@ def test_paquetes_excel(conn, aut1, cb, hold, tmp_path):
     assert paquete_grupo(conn, 2026, 1, tmp_path).exists()
     anual = load_workbook(paquete_anual(conn, cb, 2026, tmp_path)).sheetnames
     assert "184" in anual and "390" in anual and "347" in anual
+
+
+def test_comparativa_trimestre_anterior(conn, aut1):
+    facturas.registrar(conn, aut1, fra("emitida", "Q4", "2026-11-10", "B1", "Cli", [dict(base=Decimal("1000"))]))
+    facturas.registrar(conn, aut1, fra("emitida", "Q1", "2027-02-10", "B1", "Cli", [dict(base=Decimal("1500"))]))
+    ig = informes.informe_gestion(conn, aut1, 2027, 1)
+    k = ig["kpis"][0]
+    assert ig["trimestre_anterior"] == "4T 2026"
+    assert k["actual"] == 150000 and k["trim_anterior"] == 100000 and k["variacion_trim_pct"] == 50.0
+    from finsoft.estados import pyg_filas
+    fila = pyg_filas(conn, aut1, 2027, 1)[0]
+    assert fila["Trim. anterior (4T 2026)"] == 100000
+
+
+def test_cli_apertura_y_asiento(tmp_path):
+    import json
+    from click.testing import CliRunner
+    from finsoft.cli import main
+    from tests.conftest import CONFIG
+    dbp = str(tmp_path / "t.db")
+    r = CliRunner()
+    assert r.invoke(main, ["--db", dbp, "init", "--config", str(CONFIG)]).exit_code == 0
+    csvf = tmp_path / "saldos.csv"
+    csvf.write_text("cuenta;saldo\n5720;1.500,00\n1020;-1.500,00\n", encoding="utf-8")
+    res = r.invoke(main, ["--db", dbp, "apertura", "--entidad", "AUT1", "--fecha", "2026-10-01", str(csvf)])
+    assert res.exit_code == 0, res.output
+    js = tmp_path / "a.json"
+    js.write_text(json.dumps({"fecha": "2026-10-05", "concepto": "Comisión", "apuntes": [
+        {"cuenta": "6260", "debe": 5}, {"cuenta": "5720", "haber": 5}]}))
+    assert r.invoke(main, ["--db", dbp, "asiento", "--entidad", "AUT1", str(js)]).exit_code == 0
+    malo = tmp_path / "m.csv"
+    malo.write_text("cuenta;saldo\n5720;10\n", encoding="utf-8")
+    assert r.invoke(main, ["--db", dbp, "apertura", "--entidad", "AUT1", "--fecha", "2026-10-01", str(malo)]).exit_code != 0

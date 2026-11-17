@@ -43,6 +43,8 @@ def pyg_filas(conn, entidad: Entidad, ejercicio: int, hasta_trimestre: int = 4) 
     columnas = OrderedDict()
     for t in range(1, hasta_trimestre + 1):
         columnas[f"T{t}"] = pyg(conn, entidad, *trimestre(ejercicio, t))
+    ea, ta = (ejercicio, hasta_trimestre - 1) if hasta_trimestre > 1 else (ejercicio - 1, 4)
+    columnas[f"Trim. anterior ({ta}T {ea})"] = pyg(conn, entidad, *trimestre(ea, ta))
     columnas["Acumulado"] = pyg(conn, entidad, *acumulado(ejercicio, hasta_trimestre))
     columnas[f"Acum. {ejercicio - 1}"] = pyg(conn, entidad, *acumulado(ejercicio - 1, hasta_trimestre))
     filas = []

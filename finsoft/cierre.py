@@ -39,8 +39,9 @@ def _hojas_estados(lib: Libro, conn, e: Entidad, ejercicio: int, t: int):
 def _hojas_gestion(lib: Libro, conn, e: Entidad, ejercicio: int, t: int):
     ig = informes.informe_gestion(conn, e, ejercicio, t)
     lib.hoja("Gestión", f"Informe de gestión {t}T {ejercicio} · {e.nombre}", [
-        ("indicador", "Indicador"), ("actual", str(ejercicio)), ("anterior", str(ejercicio - 1)),
-        ("variacion_pct", "Var. %")], ig["kpis"], {"actual", "anterior"},
+        ("indicador", "Indicador"), ("actual", str(ejercicio)), ("trim_anterior", f"Trim. anterior ({ig['trimestre_anterior']})"),
+        ("variacion_trim_pct", "Var. % s/trim. anterior"), ("anterior", str(ejercicio - 1)),
+        ("variacion_pct", "Var. % s/año anterior")], ig["kpis"], {"actual", "anterior", "trim_anterior"},
         notas=[f"Tesorería al cierre: {ig['tesoreria'] / 100:,.2f} €",
                f"Pendiente de cobro: {ig['pendiente_cobro'] / 100:,.2f} €",
                f"Pendiente de pago: {ig['pendiente_pago'] / 100:,.2f} €"]

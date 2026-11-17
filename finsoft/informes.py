@@ -86,6 +86,8 @@ def informe_gestion(conn, entidad: Entidad, ejercicio: int, t: int) -> dict:
     da, ha = acumulado(ejercicio, t)
     daa, haa = acumulado(ejercicio - 1, t)
     p_t, p_ta = pyg(conn, entidad, dq, hq), pyg(conn, entidad, dqa, hqa)
+    ep, tp = (ejercicio, t - 1) if t > 1 else (ejercicio - 1, 4)
+    p_tp = pyg(conn, entidad, *trimestre(ep, tp))
     p_a, p_aa = pyg(conn, entidad, da, ha), pyg(conn, entidad, daa, haa)
     b = balance(conn, entidad, hq)
     est = b["estructura"]
@@ -97,14 +99,15 @@ def informe_gestion(conn, entidad: Entidad, ejercicio: int, t: int) -> dict:
     cobros = pendientes(conn, entidad, "emitida", hq)
     pagos = pendientes(conn, entidad, "recibida", hq)
 
-    def kpi(nombre, actual, anterior):
-        return {"indicador": nombre, "actual": actual, "anterior": anterior, "variacion_pct": _var(actual, anterior)}
+    def kpi(nombre, actual, anterior, trim_anterior=None):
+        return {"indicador": nombre, "actual": actual, "anterior": anterior, "variacion_pct": _var(actual, anterior),
+                "trim_anterior": trim_anterior, "variacion_trim_pct": _var(actual, trim_anterior)}
 
+    rai = "C) RESULTADO ANTES DE IMPUESTOS"
     kpis = [
-        kpi(f"Ingresos {t}T", p_t["ingresos"], p_ta["ingresos"]),
-        kpi(f"Gastos {t}T", p_t["gastos"], p_ta["gastos"]),
-        kpi(f"Resultado antes de impuestos {t}T", p_t["C) RESULTADO ANTES DE IMPUESTOS"],
-            p_ta["C) RESULTADO ANTES DE IMPUESTOS"]),
+        kpi(f"Ingresos {t}T", p_t["ingresos"], p_ta["ingresos"], p_tp["ingresos"]),
+        kpi(f"Gastos {t}T", p_t["gastos"], p_ta["gastos"], p_tp["gastos"]),
+        kpi(f"Resultado antes de impuestos {t}T", p_t[rai], p_ta[rai], p_tp[rai]),
         kpi("Ingresos acumulados", p_a["ingresos"], p_aa["ingresos"]),
         kpi("Gastos acumulados", p_a["gastos"], p_aa["gastos"]),
         kpi("Resultado acumulado antes de impuestos", p_a["C) RESULTADO ANTES DE IMPUESTOS"],
@@ -136,6 +139,7 @@ def informe_gestion(conn, entidad: Entidad, ejercicio: int, t: int) -> dict:
         alertas.append(f"Cuentas sin clasificar en balance: {', '.join(b['sin_clasificar'])}")
     return {
         "entidad": entidad.codigo, "nombre": entidad.nombre, "ejercicio": ejercicio, "trimestre": t,
+        "trimestre_anterior": f"{tp}T {ep}",
         "kpis": kpis, "ratios": ratios, "tesoreria": tesoreria,
         "pendiente_cobro": sum(c["pendiente"] for c in cobros), "pendiente_pago": sum(p["pendiente"] for p in pagos),
         "top_clientes": _top_terceros(conn, entidad, "emitida", da, ha),

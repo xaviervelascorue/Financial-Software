@@ -301,6 +301,48 @@ def reparto(ctx, entidad, fecha, importe, cuenta_cargo):
     click.echo("Registrado")
 
 
+@main.command("asiento")
+@click.option("--entidad", required=True)
+@click.argument("fichero", type=click.Path(exists=True))
+@click.pass_context
+def cmd_asiento(ctx, entidad, fichero):
+    """Asiento manual desde JSON: {"fecha", "concepto", "apuntes": [{"cuenta", "debe", "haber", "linea"}]}."""
+    from .ledger import Apunte, AsientoDescuadrado, crear_asiento
+    conn, e = ctx.obj, _entidad(ctx, entidad)
+    d = json.loads(Path(fichero).read_text(encoding="utf-8"))
+    ap = [Apunte(a["cuenta"], a.get("debe", 0), a.get("haber", 0), ent.linea_id(conn, e, a.get("linea")))
+          for a in d["apuntes"]]
+    try:
+        aid = crear_asiento(conn, e, d["fecha"], d["concepto"], ap, origen=d.get("origen", "manual"))
+    except (AsientoDescuadrado, ValueError) as ex:
+        raise click.ClickException(str(ex))
+    click.echo(f"Asiento {aid} registrado")
+
+
+@main.command("apertura")
+@click.option("--entidad", required=True)
+@click.option("--fecha", required=True, help="Fecha del asiento de apertura, p. ej. 2026-10-01")
+@click.argument("fichero", type=click.Path(exists=True))
+@click.pass_context
+def cmd_apertura(ctx, entidad, fecha, fichero):
+    """Saldos iniciales desde CSV con columnas cuenta;saldo (saldo deudor positivo, acreedor negativo)."""
+    import csv
+    from .ledger import Apunte, AsientoDescuadrado, crear_asiento
+    conn, e = ctx.obj, _entidad(ctx, entidad)
+    texto = Path(fichero).read_text(encoding="utf-8-sig")
+    sep = ";" if texto.count(";") >= texto.count(",") else ","
+    ap = []
+    for fila in csv.DictReader(texto.splitlines(), delimiter=sep):
+        importe = (fila.get("saldo") or "0").replace(".", "").replace(",", ".") if sep == ";" else fila.get("saldo", "0")
+        v = float(importe)
+        ap.append(Apunte(fila["cuenta"].strip(), debe=v if v > 0 else 0, haber=-v if v < 0 else 0))
+    try:
+        aid = crear_asiento(conn, e, fecha, "Asiento de apertura", ap, origen="apertura")
+    except (AsientoDescuadrado, ValueError) as ex:
+        raise click.ClickException(str(ex))
+    click.echo(f"Apertura registrada (asiento {aid})")
+
+
 # ------------------------------------------------------------------ cierres e informes
 @main.command("trimestre")
 @click.argument("ejercicio", type=int)

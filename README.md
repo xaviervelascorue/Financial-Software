@@ -11,9 +11,9 @@ y cada trimestre se generan estados financieros, informes de gestión y los borr
 
 | Área | Contenido |
 |---|---|
-| Facturas | Lectura con IA (PDF/JPG/PNG), alta desde JSON, contabilización automática, control de duplicados, memoria de cuenta y línea por proveedor, cobros y pagos |
+| Facturas | Lectura con IA (PDF, Excel, JPG/PNG), alta desde JSON, contabilización automática, control de duplicados, memoria de cuenta y línea por proveedor, cobros y pagos |
 | Contabilidad | Diario, mayor, sumas y saldos, amortizaciones, regularización y cierre |
-| Estados | Balance y PyG abreviados por trimestre, acumulado y comparativo con el año anterior |
+| Estados | Balance y PyG abreviados por trimestre, comparados con el trimestre anterior y con el año anterior |
 | Gestión | KPIs, ratios, tesorería, pendientes de cobro y pago, alertas, top clientes y proveedores, gastos por naturaleza |
 | Rentabilidad | Por línea de ingreso: margen, reparto de gastos de estructura y rentabilidad anualizada sobre el capital invertido |
 | IVA | 303 (con compensaciones), 390 y libros registro de expedidas y recibidas; prorrata y holding no sujeta |
@@ -44,6 +44,10 @@ finsoft bandeja --entidad AUT1 bandeja/AUT1 --si      # --si: contabiliza sola s
 finsoft factura alta --entidad AUT1 ejemplos/facturas.json
 finsoft factura lista --entidad AUT1 --desde 2026-01-01
 finsoft factura cobro-pago --entidad AUT1 12 --fecha 2026-02-15
+
+# Saldos iniciales (CSV cuenta;saldo, deudor +, acreedor -) y asientos manuales en JSON
+finsoft apertura --entidad AUT1 --fecha 2026-10-01 saldos.csv
+finsoft asiento --entidad AUT1 asiento.json
 
 # Gastos sin factura (cuota de autónomos, comisiones, IBI...)
 finsoft movimiento --entidad AUT1 --fecha 2026-01-31 --cuenta 6420 --importe 300 --concepto "Cuota RETA"

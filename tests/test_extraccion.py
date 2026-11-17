@@ -72,3 +72,17 @@ def test_formato_no_soportado(conn, aut1, tmp_path):
     f.write_bytes(b"x")
     with pytest.raises(ExtraccionError):
         leer_factura(conn, f, aut1, client=FakeClient(extraida()))
+
+
+def test_factura_excel(conn, aut1, tmp_path):
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws["A1"], ws["B3"], ws["C10"] = "FACTURA", "Nº 2026/015", 1210
+    ruta = tmp_path / "fra.xlsx"
+    wb.save(ruta)
+    client = FakeClient(extraida())
+    leer_factura(conn, ruta, aut1, client=client)
+    bloque = client.kwargs["messages"][0]["content"][0]
+    assert bloque["source"]["type"] == "text"
+    assert "B3: Nº 2026/015" in bloque["source"]["data"] and "C10: 1210" in bloque["source"]["data"]

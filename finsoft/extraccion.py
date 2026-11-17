@@ -17,7 +17,7 @@ from .facturas import FacturaInput, LineaFactura
 from .money import D
 
 MODELO = "claude-opus-5-5"
-FORMATOS = {".pdf": "application/pdf", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+FORMATOS = {".xlsx": "text/plain", ".xlsm": "text/plain", ".pdf": "application/pdf", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
             ".webp": "image/webp", ".gif": "image/gif"}
 
 
@@ -81,10 +81,36 @@ Líneas de negocio de la entidad (código: nombre):
 """
 
 
+def excel_a_texto(path: Path) -> str:
+    """Vuelca las celdas con contenido de un Excel (facturas hechas con plantilla) a texto."""
+    from openpyxl import load_workbook
+    try:
+        wb = load_workbook(path, data_only=True, read_only=True)
+    except Exception as e:  # fichero dañado o protegido
+        raise ExtraccionError(f"No se puede abrir el Excel {path.name}: {e}") from e
+    partes = []
+    for ws in wb.worksheets:
+        if ws.sheet_state != "visible":
+            continue
+        lineas_hoja = []
+        for fila in ws.iter_rows():
+            celdas = [f"{c.coordinate}: {c.value}" for c in fila if c.value not in (None, "")]
+            if celdas:
+                lineas_hoja.append(" | ".join(celdas))
+        if lineas_hoja:
+            partes.append(f"## Hoja: {ws.title}\n" + "\n".join(lineas_hoja))
+    if not partes:
+        raise ExtraccionError(f"El Excel {path.name} está vacío")
+    return "\n\n".join(partes)
+
+
 def _bloque_documento(path: Path) -> dict:
     ext = path.suffix.lower()
     if ext not in FORMATOS:
-        raise ExtraccionError(f"Formato no soportado: {ext}. Usa PDF, JPG, PNG, WEBP o GIF.")
+        raise ExtraccionError(f"Formato no soportado: {ext}. Usa PDF, Excel (xlsx), JPG, PNG, WEBP o GIF.")
+    if ext in (".xlsx", ".xlsm"):
+        return {"type": "document", "title": path.name,
+                "source": {"type": "text", "media_type": "text/plain", "data": excel_a_texto(path)}}
     data = base64.standard_b64encode(path.read_bytes()).decode()
     media = FORMATOS[ext] or mimetypes.guess_type(path.name)[0]
     tipo = "document" if ext == ".pdf" else "image"
