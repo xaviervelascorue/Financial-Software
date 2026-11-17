@@ -91,6 +91,8 @@ CUENTAS = {
     "6270": "Publicidad, propaganda y relaciones públicas",
     "6280": "Suministros",
     "6290": "Otros servicios",
+    "6291": "Comisiones de plataformas de reserva",
+    "6295": "Gastos de comunidad de propietarios",
     "6300": "Impuesto corriente",
     "6310": "Otros tributos",
     "6340": "Ajustes negativos en la imposición indirecta (regularización prorrata)",

@@ -37,6 +37,10 @@ class Entidad:
     exento_130: bool
     renta_atribuida: str = "actividad"
     sectores_diferenciados: bool = False
+    referencia_catastral: str | None = None
+    valor_catastral: int | None = None
+    valor_catastral_construccion: int | None = None
+    catastral_revisado: bool = True
 
     @classmethod
     def from_row(cls, r: sqlite3.Row) -> "Entidad":
@@ -48,6 +52,9 @@ class Entidad:
             cifra_negocios_anterior=r["cifra_negocios_anterior"], bins_pendientes=r["bins_pendientes"],
             rend_neto_anterior=r["rend_neto_anterior"], exento_130=bool(r["exento_130"]),
             renta_atribuida=r["renta_atribuida"], sectores_diferenciados=bool(r["sectores_diferenciados"]),
+            referencia_catastral=r["referencia_catastral"], valor_catastral=r["valor_catastral"],
+            valor_catastral_construccion=r["valor_catastral_construccion"],
+            catastral_revisado=bool(r["catastral_revisado"]),
         )
 
     @property
@@ -74,7 +81,8 @@ def crear_entidad(conn, codigo, nombre, nif, tipo, regimen_iva="general", **kw) 
     }
     if tipo == "autonomo":
         campos["regimen_irpf"] = kw.pop("regimen_irpf", "eds")
-    for k in ("cuota_base_202", "cifra_negocios_anterior", "bins_pendientes", "rend_neto_anterior"):
+    for k in ("cuota_base_202", "cifra_negocios_anterior", "bins_pendientes", "rend_neto_anterior", "valor_catastral",
+              "valor_catastral_construccion"):
         if k in kw and kw[k] is not None:
             kw[k] = to_cents(kw[k])
     campos.update({k: v for k, v in kw.items() if v is not None})

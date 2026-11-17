@@ -7,7 +7,7 @@ from .entidades import Entidad, listar_entidades
 from .estados import balance_filas, cierre_regularizacion, pyg_filas
 from .excel import Libro
 from .fechas import acumulado, ejercicio as rango_ejercicio, trimestre
-from .impuestos import informativas, iva, irpf, sociedades
+from .impuestos import informativas, iva, irpf, renta, sociedades
 from .operaciones import dotar_amortizaciones
 
 PERIODO_202 = {1: 1, 3: 2, 4: 3}  # trimestre en el que se presenta → periodo (abril, octubre, diciembre)
@@ -157,7 +157,27 @@ def paquete_grupo(conn, ejercicio: int, t: int, salida: str | Path = "informes")
     return lib.guardar(Path(salida) / str(ejercicio) / f"{t}T" / f"GRUPO_{ejercicio}_{t}T.xlsx")
 
 
-def paquete_anual(conn, e: Entidad, ejercicio: int, salida: str | Path = "informes", cerrar: bool = False) -> Path:
+def _hojas_renta_cb(lib: Libro, conn, e: Entidad, ejercicio: int, dias_alquilado=None, dias_uso_propio=0):
+    cols = [("concepto", "Concepto"), ("total", "Comunidad (100 %)"), ("parte", "Parte atribuida")]
+    if e.tipo == "comunidad_bienes" and e.renta_atribuida == "capital_inmobiliario":
+        f = renta.ficha_comunidad(conn, e, ejercicio, dias_alquilado, dias_uso_propio)
+        lib.hoja("Renta comuneros", f"Capital inmobiliario {ejercicio} · {e.nombre} (NIF {e.nif})",
+                 cols[:2], renta.filas_ficha(f), {"total"}, notas=f["avisos"])
+    for f in (renta.ficha_comunero(conn, e, ejercicio, dias_alquilado, dias_uso_propio) if e.tipo == "autonomo" else []):
+        notas = [
+            f"Entidad: {f['entidad']} · NIF {f['nif']} · participación {f['porcentaje']} %",
+            f"Referencia catastral: {f['referencia_catastral'] or 'PENDIENTE'} · días alquilados: "
+            f"{f['dias_alquilado'] if f['dias_alquilado'] is not None else 'PENDIENTE'} · uso propio: {f['dias_uso_propio']}",
+            "Comuneros: " + "; ".join(f"{c['nombre']} ({c['porcentaje']} %)" for c in f["comuneros"]),
+            "Renta Web: apartado de entidades en régimen de atribución de rentas → rendimientos del capital "
+            "inmobiliario. Comprueba que coincide con el modelo 184 presentado por la comunidad.",
+        ] + f["avisos"] + [f["aviso"]]
+        lib.hoja(f"Renta {f['entidad'][:20]}", f"Tu {f['porcentaje']:g} % de {f['entidad']} · Renta {ejercicio}",
+                 cols, renta.filas_ficha(f), {"total", "parte"}, notas=notas)
+
+
+def paquete_anual(conn, e: Entidad, ejercicio: int, salida: str | Path = "informes", cerrar: bool = False,
+                  dias_alquilado: int | None = None, dias_uso_propio: int = 0) -> Path:
     """Declaraciones anuales (390, 347, 184, IS / resumen renta). Con cerrar=True contabiliza el IS y regulariza."""
     if cerrar:
         dotar_amortizaciones(conn, e, rango_ejercicio(ejercicio)[1])
@@ -185,6 +205,7 @@ def paquete_anual(conn, e: Entidad, ejercicio: int, salida: str | Path = "inform
                  "pagos_fraccionados_130": r["pagos_fraccionados_130_contabilizados"]}
         lib.clave_valor("Renta", f"Datos de actividad para la Renta {ejercicio}", datos, set(datos), e.nombre,
                         notas=[r["nota"]])
+    _hojas_renta_cb(lib, conn, e, ejercicio, dias_alquilado, dias_uso_propio)
     if e.tipo == "sociedad":
         est = sociedades.estimacion_is(conn, e, ejercicio)
         datos = {k: v for k, v in est.items() if k not in ("ajustes", "avisos", "aviso", "modelo", "entidad", "ejercicio")}

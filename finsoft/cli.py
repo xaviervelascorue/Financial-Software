@@ -366,15 +366,37 @@ def cmd_trimestre(ctx, ejercicio, t, entidad, salida):
 @click.option("--entidad")
 @click.option("--cerrar", is_flag=True, help="Contabiliza el IS y regulariza el ejercicio (irreversible)")
 @click.option("--salida", default="informes", show_default=True)
+@click.option("--dias-alquilado", type=int, help="Vivienda turística: días alquilados en el año")
+@click.option("--dias-uso-propio", type=int, default=0, help="Vivienda turística: días de uso propio")
 @click.pass_context
-def cmd_anual(ctx, ejercicio, entidad, cerrar, salida):
+def cmd_anual(ctx, ejercicio, entidad, cerrar, salida, dias_alquilado, dias_uso_propio):
     """Declaraciones anuales (390, 347, 184, IS) y, opcionalmente, cierre del ejercicio."""
     conn = ctx.obj
     lista = [_entidad(ctx, entidad)] if entidad else ent.listar_entidades(conn)
     if cerrar and not click.confirm(f"Se cerrará el ejercicio {ejercicio} de {', '.join(e.codigo for e in lista)}. ¿Continuar?"):
         return
     for e in lista:
-        click.echo(f"✔ {cierre.paquete_anual(conn, e, ejercicio, salida, cerrar)}")
+        click.echo(f"✔ {cierre.paquete_anual(conn, e, ejercicio, salida, cerrar, dias_alquilado, dias_uso_propio)}")
+
+
+@main.command("renta-cb")
+@click.option("--entidad", required=True, help="Comunero (p. ej. XVR)")
+@click.argument("ejercicio", type=int)
+@click.option("--dias-alquilado", type=int)
+@click.option("--dias-uso-propio", type=int, default=0)
+@click.pass_context
+def cmd_renta_cb(ctx, entidad, ejercicio, dias_alquilado, dias_uso_propio):
+    """Datos para declarar en la Renta tu parte de una CB de capital inmobiliario (vivienda turística)."""
+    from .impuestos import renta
+    fichas = renta.ficha_comunero(ctx.obj, _entidad(ctx, entidad), ejercicio, dias_alquilado, dias_uso_propio)
+    if not fichas:
+        raise click.ClickException("Esta entidad no participa en ninguna CB de capital inmobiliario")
+    for f in fichas:
+        click.echo(f"\n{f['entidad']} · NIF {f['nif']} · tu participación {f['porcentaje']:g} % · ejercicio {ejercicio}")
+        _tabla(renta.filas_ficha(f), [("concepto", "Concepto"), ("total", "CB 100 %"), ("parte", "Tu parte")],
+               {"total", "parte"})
+        for a in f["avisos"]:
+            click.secho(f"  ⚠ {a}", fg="yellow")
 
 
 @main.command("liquidar-iva")

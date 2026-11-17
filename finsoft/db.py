@@ -196,6 +196,10 @@ MIGRACIONES = [
     ("lineas", "iva_exento", "INTEGER NOT NULL DEFAULT 0"),
     ("factura_lineas", "deducible", "INTEGER NOT NULL DEFAULT 0"),
     ("factura_lineas", "prorrata", "INTEGER NOT NULL DEFAULT 0"),
+    ("entidades", "referencia_catastral", "TEXT"),
+    ("entidades", "valor_catastral", "INTEGER"),
+    ("entidades", "valor_catastral_construccion", "INTEGER"),
+    ("entidades", "catastral_revisado", "INTEGER NOT NULL DEFAULT 1"),
 ]
 
 

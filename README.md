@@ -69,7 +69,10 @@ finsoft balance --entidad HOLD --fecha 2026-03-31
 finsoft rentabilidad --entidad HOLD 2026 1
 
 # Anual: 390, 347, 184, IS / Renta. Con --cerrar contabiliza el IS y regulariza
-finsoft anual 2026
+finsoft anual 2026 --dias-alquilado 210 --dias-uso-propio 15
+
+# Tu parte de una CB de vivienda turística para la Renta (ingresos, gastos por tipo, amortización, imputación)
+finsoft renta-cb --entidad XVR 2026 --dias-alquilado 210 --dias-uso-propio 15
 ```
 
 ## Contenido del Excel trimestral
