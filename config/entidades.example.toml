@@ -1,0 +1,99 @@
+# Configuración de entidades. Copia este fichero a config/entidades.toml (no se sube a git)
+# y sustituye los datos de ejemplo por los reales. Luego: finsoft init --config config/entidades.toml
+#
+# tipo:         autonomo | comunidad_bienes | sociedad
+# regimen_iva:  general | prorrata | no_sujeto (holding pura) | exento
+# regimen_irpf: eds (directa simplificada) | edn (directa normal)   — sólo autónomos
+# Importes en euros.
+
+[[entidad]]
+codigo = "AUT1"
+nombre = "Autónomo 1 (ejemplo)"
+nif = "00000001R"
+tipo = "autonomo"
+regimen_iva = "general"
+regimen_irpf = "eds"
+epigrafe_iae = "PENDIENTE"
+rend_neto_anterior = 30000      # rendimiento neto del año anterior (minoración del 130)
+exento_130 = 0                  # 1 si >70 % de ingresos llevaron retención el año anterior
+
+  [[entidad.linea]]
+  codigo = "SERV"
+  nombre = "Servicios profesionales"
+  tipo = "actividad"
+
+[[entidad]]
+codigo = "AUT2"
+nombre = "Autónomo 2 (ejemplo)"
+nif = "00000002W"
+tipo = "autonomo"
+regimen_iva = "general"
+regimen_irpf = "eds"
+epigrafe_iae = "PENDIENTE"
+
+  [[entidad.linea]]
+  codigo = "SERV"
+  nombre = "Servicios profesionales"
+
+[[entidad]]
+codigo = "CB"
+nombre = "Comunidad de bienes (ejemplo)"
+nif = "E00000003"
+tipo = "comunidad_bienes"
+regimen_iva = "general"
+
+  [[entidad.linea]]
+  codigo = "ALQ1"
+  nombre = "Alquiler local 1"
+  tipo = "alquiler"
+  capital_invertido = 150000
+
+[[entidad]]
+codigo = "HOLD"
+nombre = "Holding (ejemplo), S.L."
+nif = "B00000004"
+tipo = "sociedad"
+regimen_iva = "no_sujeto"       # holding pura sin actividad; "general" si factura servicios a filiales
+es_holding = 1
+es_patrimonial = 1              # más del 50 % del activo no afecto a actividad económica
+tipo_is = 25
+modalidad_202 = "40.2"          # 40.2 (sobre la cuota del último IS) o 40.3 (sobre la base del periodo)
+cuota_base_202 = 0              # cuota íntegra - deducciones - retenciones del último IS presentado
+bins_pendientes = 0
+
+  [[entidad.linea]]
+  codigo = "CARTERA"
+  nombre = "Cartera de valores cotizados"
+  tipo = "inversion_financiera"
+
+  [[entidad.linea]]
+  codigo = "DEP"
+  nombre = "Depósitos y renta fija"
+  tipo = "inversion_financiera"
+
+# Comuneros de la CB (porcentajes de participación)
+[[participacion]]
+participada = "CB"
+titular = "AUT1"
+porcentaje = 50
+
+[[participacion]]
+participada = "CB"
+titular = "AUT2"
+porcentaje = 50
+
+# Socios de la holding (personas físicas externas al sistema)
+[[participacion]]
+participada = "HOLD"
+titular_nombre = "Socio 1"
+titular_nif = "00000001R"
+porcentaje = 50
+
+[[participacion]]
+participada = "HOLD"
+titular_nombre = "Socio 2"
+titular_nif = "00000002W"
+porcentaje = 50
+
+# Futuras filiales: darlas de alta como [[entidad]] tipo "sociedad" y añadir
+# [[participacion]] participada = "FILIAL1", titular = "HOLD", porcentaje = 100, coste = 3000

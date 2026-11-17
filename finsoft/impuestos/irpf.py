@@ -1,0 +1,200 @@
+"""IRPF: modelo 130 (pagos fraccionados de autónomos en estimación directa), atribución de rentas
+de comunidades de bienes, modelos 111, 115 y 123 de retenciones practicadas y modelo 184."""
+
+from collections import defaultdict
+from decimal import Decimal
+
+from ..entidades import Entidad, get_entidad, participadas, titulares
+from ..fechas import acumulado, ejercicio as rango_ejercicio, trimestre
+from ..ledger import saldos
+from . import AVISO
+
+PCT_130 = Decimal("20")
+PCT_GASTOS_DIFICIL_JUSTIFICACION = Decimal("5")
+MAX_GASTOS_DIFICIL_JUSTIFICACION = 200000  # céntimos (2.000 €)
+
+
+def rendimientos_actividad(conn, entidad: Entidad, desde: str, hasta: str) -> dict:
+    """Ingresos y gastos de la actividad económica (excluye rendimientos/pérdidas financieras
+    de inversiones, que tributan como capital mobiliario, y el impuesto sobre beneficios)."""
+    s = saldos(conn, entidad, desde, hasta, excluir_origen=("regularizacion",))
+    ingresos = gastos = 0
+    for c, (d, h) in s.items():
+        if c.startswith("7") and not c.startswith(("760", "761", "763", "766")):
+            ingresos += h - d
+        elif c.startswith("6") and not c.startswith(("630", "663", "666")):
+            gastos += d - h
+    retenciones = conn.execute(
+        "SELECT COALESCE(SUM(retencion),0) FROM facturas WHERE entidad_id=? AND tipo='emitida' AND fecha BETWEEN ? AND ?",
+        (entidad.id, desde, hasta),
+    ).fetchone()[0]
+    return {"ingresos": ingresos, "gastos": gastos, "rendimiento": ingresos - gastos, "retenciones": retenciones}
+
+
+def atribucion_rentas(conn, cb: Entidad, desde: str, hasta: str) -> list[dict]:
+    """Reparto entre comuneros de los rendimientos de una comunidad de bienes."""
+    r = rendimientos_actividad(conn, cb, desde, hasta)
+    out = []
+    for t in titulares(conn, cb):
+        pct = Decimal(str(t["porcentaje"]))
+        out.append({
+            "comunero": t["titular_nombre"], "nif": t["titular_nif"], "entidad_id": t["titular_entidad_id"],
+            "porcentaje": float(pct),
+            **{k: int(round(v * pct / 100)) for k, v in r.items()},
+        })
+    return out
+
+
+def _cuota_atribuida(conn, autonomo: Entidad, desde: str, hasta: str) -> dict:
+    total = defaultdict(int)
+    detalle = []
+    for p in participadas(conn, autonomo):
+        if p["participada_tipo"] != "comunidad_bienes":
+            continue
+        cb = get_entidad(conn, p["participada_id"])
+        for a in atribucion_rentas(conn, cb, desde, hasta):
+            if a["entidad_id"] == autonomo.id:
+                for k in ("ingresos", "gastos", "rendimiento", "retenciones"):
+                    total[k] += a[k]
+                detalle.append({"cb": cb.codigo, **a})
+    return {"total": dict(total), "detalle": detalle}
+
+
+def _minoracion_110(rend_anterior: int | None) -> int:
+    """Minoración art. 110.3.c RIRPF según rendimientos netos del ejercicio anterior (céntimos)."""
+    if rend_anterior is None:
+        return 0
+    for limite, importe in ((900000, 10000), (1000000, 7500), (1100000, 5000), (1200000, 2500)):
+        if rend_anterior <= limite:
+            return importe
+    return 0
+
+
+def modelo_130(conn, autonomo: Entidad, ejercicio: int, t: int) -> dict:
+    if autonomo.tipo != "autonomo":
+        raise ValueError("El modelo 130 sólo aplica a autónomos (las CB atribuyen a sus comuneros)")
+    desde, hasta = acumulado(ejercicio, t)
+    propio = rendimientos_actividad(conn, autonomo, desde, hasta)
+    atrib = _cuota_atribuida(conn, autonomo, desde, hasta)
+    ingresos = propio["ingresos"] + atrib["total"].get("ingresos", 0)
+    gastos = propio["gastos"] + atrib["total"].get("gastos", 0)
+    djust = 0
+    if autonomo.regimen_irpf == "eds" and ingresos - gastos > 0:
+        djust = min(int(round((ingresos - gastos) * PCT_GASTOS_DIFICIL_JUSTIFICACION / 100)),
+                    MAX_GASTOS_DIFICIL_JUSTIFICACION)
+    c = {}
+    c["01"] = ingresos
+    c["02"] = gastos + djust
+    c["03"] = c["01"] - c["02"]
+    c["04"] = int(round(c["03"] * PCT_130 / 100)) if c["03"] > 0 else 0
+    # pagos fraccionados de trimestres anteriores (casilla 07 positiva) y negativos pendientes
+    previos, negativos = 0, 0
+    for tt in range(1, t):
+        prev = modelo_130(conn, autonomo, ejercicio, tt)["casillas"]
+        previos += max(prev["07"], 0)
+        if prev["19"] < 0:
+            negativos += -prev["19"]
+        else:
+            negativos = max(negativos - prev["15"], 0)
+    c["05"] = previos
+    c["06"] = propio["retenciones"] + atrib["total"].get("retenciones", 0)
+    c["07"] = c["04"] - c["05"] - c["06"]
+    c["12"] = c["07"]
+    c["13"] = _minoracion_110(autonomo.rend_neto_anterior)
+    c["14"] = c["12"] - c["13"]
+    c["15"] = min(negativos, c["14"]) if c["14"] > 0 else 0
+    c["16"] = 0
+    c["17"] = c["14"] - c["15"] - c["16"]
+    c["18"] = 0
+    c["19"] = c["17"] - c["18"]
+    avisos = []
+    if autonomo.exento_130:
+        avisos.append("Entidad marcada como exenta del 130 (más del 70 % de ingresos con retención el año anterior).")
+    if propio["ingresos"] and propio["retenciones"] and \
+            propio["retenciones"] / max(propio["ingresos"], 1) >= 0.14 and not autonomo.exento_130:
+        avisos.append("La mayor parte de los ingresos lleva retención: revisa si quedas exonerado del 130 (art. 109 RIRPF).")
+    return {
+        "modelo": "130", "entidad": autonomo.codigo, "nif": autonomo.nif, "ejercicio": ejercicio, "periodo": f"{t}T",
+        "desde": desde, "hasta": hasta, "casillas": c,
+        "resultado": max(c["19"], 0), "tipo_resultado": "A ingresar" if c["19"] > 0 else "Negativa / cero",
+        "gastos_dificil_justificacion": djust, "atribucion_cb": atrib["detalle"],
+        "presentar": not autonomo.exento_130, "avisos": avisos, "aviso": AVISO,
+    }
+
+
+def _retenciones(conn, entidad, modelo, desde, hasta):
+    return conn.execute(
+        "SELECT clave, COUNT(DISTINCT perceptor_nif) AS perceptores, SUM(base) AS base, SUM(retencion) AS retencion"
+        " FROM retenciones WHERE entidad_id=? AND modelo=? AND fecha BETWEEN ? AND ? GROUP BY clave",
+        (entidad.id, modelo, desde, hasta),
+    ).fetchall()
+
+
+def modelo_111(conn, entidad: Entidad, ejercicio: int, t: int) -> dict:
+    desde, hasta = trimestre(ejercicio, t)
+    c = defaultdict(int)
+    for r in _retenciones(conn, entidad, "111", desde, hasta):
+        if r["clave"] == "A":
+            c["01"] += r["perceptores"]
+            c["02"] += r["base"]
+            c["03"] += r["retencion"]
+        else:
+            c["07"] += r["perceptores"]
+            c["08"] += r["base"]
+            c["09"] += r["retencion"]
+    c["28"] = c["03"] + c["09"]
+    c["30"] = c["28"]
+    return {"modelo": "111", "entidad": entidad.codigo, "ejercicio": ejercicio, "periodo": f"{t}T",
+            "casillas": dict(c), "resultado": c["30"], "presentar": c["30"] > 0, "aviso": AVISO}
+
+
+def modelo_115(conn, entidad: Entidad, ejercicio: int, t: int) -> dict:
+    desde, hasta = trimestre(ejercicio, t)
+    c = defaultdict(int)
+    for r in _retenciones(conn, entidad, "115", desde, hasta):
+        c["01"] += r["perceptores"]
+        c["02"] += r["base"]
+        c["03"] += r["retencion"]
+    c["05"] = c["03"]
+    return {"modelo": "115", "entidad": entidad.codigo, "ejercicio": ejercicio, "periodo": f"{t}T",
+            "casillas": dict(c), "resultado": c["05"], "presentar": c["05"] > 0, "aviso": AVISO}
+
+
+def modelo_123(conn, entidad: Entidad, ejercicio: int, t: int) -> dict:
+    desde, hasta = trimestre(ejercicio, t)
+    c = defaultdict(int)
+    for r in _retenciones(conn, entidad, "123", desde, hasta):
+        c["01"] += r["perceptores"]
+        c["02"] += r["base"]
+        c["03"] += r["retencion"]
+    c["06"] = c["03"]
+    return {"modelo": "123", "entidad": entidad.codigo, "ejercicio": ejercicio, "periodo": f"{t}T",
+            "casillas": dict(c), "resultado": c["06"], "presentar": c["06"] > 0, "aviso": AVISO}
+
+
+def modelo_184(conn, cb: Entidad, ejercicio: int) -> dict:
+    """Declaración informativa anual de entidades en régimen de atribución de rentas."""
+    if cb.tipo != "comunidad_bienes":
+        raise ValueError("El modelo 184 sólo aplica a comunidades de bienes / entidades en atribución")
+    desde, hasta = rango_ejercicio(ejercicio)
+    total = rendimientos_actividad(conn, cb, desde, hasta)
+    reparto = atribucion_rentas(conn, cb, desde, hasta)
+    pct = sum(r["porcentaje"] for r in reparto)
+    avisos = [] if abs(pct - 100) < 0.01 else [f"Los porcentajes de los comuneros suman {pct} %, no 100 %"]
+    return {"modelo": "184", "entidad": cb.codigo, "nif": cb.nif, "ejercicio": ejercicio,
+            "rendimientos_actividad": total, "comuneros": reparto, "avisos": avisos, "aviso": AVISO}
+
+
+def resumen_anual_autonomo(conn, autonomo: Entidad, ejercicio: int) -> dict:
+    """Datos de la actividad para la declaración de la renta (modelo 100)."""
+    desde, hasta = rango_ejercicio(ejercicio)
+    propio = rendimientos_actividad(conn, autonomo, desde, hasta)
+    atrib = _cuota_atribuida(conn, autonomo, desde, hasta)
+    pagos = conn.execute(
+        "SELECT COALESCE(SUM(ap.debe - ap.haber),0) FROM apuntes ap JOIN asientos a ON a.id=ap.asiento_id"
+        " WHERE a.entidad_id=? AND ap.cuenta LIKE '4731%' AND a.fecha BETWEEN ? AND ?",
+        (autonomo.id, desde, hasta)).fetchone()[0]
+    return {"entidad": autonomo.codigo, "ejercicio": ejercicio, "actividad_propia": propio,
+            "atribuido_cb": atrib, "pagos_fraccionados_130_contabilizados": pagos,
+            "nota": "La reducción por gastos de difícil justificación y demás reducciones se aplican en el modelo 100."}
+

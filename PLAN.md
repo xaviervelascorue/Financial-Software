@@ -1,6 +1,8 @@
 # Plan de trabajo — Software de contabilidad multientidad
 
-> Estado: **en pausa**. Se retoma el lunes 16/11/2026. No hay código aún; este documento recoge el diseño acordado para arrancar.
+> Estado: **fase 1 implementada** (17/11/2026): núcleo contable, lectura de facturas con IA, estados
+> trimestrales, informes de gestión y borradores fiscales. Ver README.md. Pendiente: cargar los datos reales
+> de las entidades (apartado final).
 
 ## Alcance inicial (fase 1)
 
@@ -30,7 +32,9 @@ Futuras filiales colgarán de la holding (tabla de participaciones con %, coste 
 - Python 3 + SQLite (importes en céntimos enteros), CLI con `click` y salida en Excel (`openpyxl`).
 - Extracción de facturas con el SDK `anthropic` (`client.beta.messages.parse` + modelo Pydantic, `fallbacks="default"`), opcional mediante `ANTHROPIC_API_KEY`.
 - Tests con `pytest` sobre los cálculos contables y fiscales.
-- Más adelante: interfaz web, importación de extractos bancarios y consolidación formal del grupo.
+- Más adelante: interfaz web, importación de extractos bancarios (Norma 43), conciliación bancaria,
+  consolidación formal del grupo (eliminaciones intragrupo), modelo 349, nóminas y afectación parcial
+  de gastos de autónomos en IRPF (vehículo, suministros de vivienda).
 
 ## Pendiente de confirmar el lunes
 

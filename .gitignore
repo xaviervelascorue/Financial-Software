@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+# datos reales: nunca al repositorio
+*.db
+config/entidades.toml
+informes/
+bandeja/
+facturas/
+.env

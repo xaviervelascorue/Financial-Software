@@ -1,0 +1,29 @@
+[
+  {
+    "tipo": "emitida",
+    "numero": "2026-001",
+    "fecha": "2026-01-15",
+    "tercero_nif": "B11111111",
+    "tercero_nombre": "Cliente Ejemplo SL",
+    "retencion_tipo": "profesional",
+    "retencion_pct": 15,
+    "lineas": [{"concepto": "Consultoría enero", "base": 2000, "tipo_iva": 21, "linea": "SERV"}]
+  },
+  {
+    "tipo": "recibida",
+    "numero": "A-889",
+    "fecha": "2026-01-20",
+    "tercero_nif": "B22222222",
+    "tercero_nombre": "Tienda Informática SL",
+    "bien_inversion": true,
+    "lineas": [{"concepto": "Portátil", "base": 1200, "tipo_iva": 21, "cuenta": "2170"}]
+  },
+  {
+    "tipo": "recibida",
+    "numero": "F-12",
+    "fecha": "2026-02-03",
+    "tercero_nif": "B33333333",
+    "tercero_nombre": "Telefonía SA",
+    "lineas": [{"concepto": "Fibra y móvil", "base": 60, "tipo_iva": 21, "cuenta": "6280"}]
+  }
+]
