@@ -20,7 +20,9 @@ def modelo_347(conn, entidad: Entidad, ejercicio: int) -> dict:
     acum = defaultdict(lambda: {"total": 0, "T1": 0, "T2": 0, "T3": 0, "T4": 0})
     nombres = {}
     for r in rows:
-        if r["tipo_operacion"] not in ("interior", "isp") or r["retencion"] or r["pais"] != "ES":
+        # sin NIF = consumidores finales agrupados en una factura resumen: no se declaran
+        if r["tipo_operacion"] not in ("interior", "isp") or r["retencion"] or r["pais"] != "ES" \
+                or r["nif"].startswith("SIN-NIF"):
             continue
         clave = "B" if r["tipo"] == "emitida" else "A"
         imp = r["base"] + (r["cuota_iva"] if r["tipo_operacion"] == "interior" else 0)

@@ -261,3 +261,9 @@ def test_cli_apertura_y_asiento(tmp_path):
     malo = tmp_path / "m.csv"
     malo.write_text("cuenta;saldo\n5720;10\n", encoding="utf-8")
     assert r.invoke(main, ["--db", dbp, "apertura", "--entidad", "AUT1", "--fecha", "2026-10-01", str(malo)]).exit_code != 0
+
+
+def test_347_excluye_factura_resumen_particulares(conn, aut1):
+    facturas.registrar(conn, aut1, fra("emitida", "R-01", "2026-01-31", "", "Clientes particulares (resumen enero)",
+                                       [dict(base=Decimal("4000"))]))
+    assert informativas.modelo_347(conn, aut1, 2026)["declarados"] == []
