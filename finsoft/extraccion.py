@@ -203,7 +203,16 @@ def a_factura_input(fx: FacturaExtraida, entidad: Entidad, archivo: str | None =
 
 
 def leer_factura(conn, path: str | Path, entidad: Entidad, client=None) -> FacturaInput:
+    """Excel con la plantilla propia → lectura directa; cualquier otro documento → lectura con IA."""
     ls = lineas(conn, entidad)
+    if Path(path).suffix.lower() in (".xlsx", ".xlsm"):
+        from .plantillas import PlantillaError, leer_plantilla
+        try:
+            fi = leer_plantilla(path, linea=ls[0]["codigo"] if len(ls) == 1 else None)
+        except PlantillaError as e:
+            raise ExtraccionError(f"{Path(path).name}: {e}") from e
+        if fi is not None:
+            return fi
     txt = "\n".join(f"{r['codigo']}: {r['nombre']} ({r['tipo']})" for r in ls)
     fx = extraer(path, entidad, txt, client=client)
     return a_factura_input(fx, entidad, archivo=str(path), codigos_linea={r["codigo"] for r in ls})
