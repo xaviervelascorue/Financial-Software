@@ -24,7 +24,7 @@ NOMBRES_303 = {
     "34": "Importaciones bienes de inversión: base", "35": "Cuota deducible",
     "36": "Adquisiciones intracomunitarias bienes y servicios corrientes: base", "37": "Cuota deducible",
     "38": "Adquisiciones intracomunitarias bienes de inversión: base", "39": "Cuota deducible",
-    "45": "Total a deducir", "46": "Resultado régimen general",
+    "44": "Regularización por aplicación del porcentaje definitivo de prorrata", "45": "Total a deducir", "46": "Resultado régimen general",
     "59": "Entregas intracomunitarias de bienes y servicios", "60": "Exportaciones y operaciones asimiladas",
     "120": "Operaciones no sujetas por reglas de localización", "122": "Operaciones sujetas con inversión del sujeto pasivo",
     "64": "Suma de resultados", "65": "% atribuible a la Administración del Estado", "66": "Atribuible al Estado",
@@ -35,7 +35,7 @@ NOMBRES_303 = {
 def _lineas_periodo(conn, entidad, desde, hasta):
     return conn.execute(
         "SELECT f.id, f.tipo, f.tipo_operacion, f.bien_inversion, f.cuota_iva AS cuota_fra,"
-        " f.cuota_deducible AS deducible_fra, l.base, l.tipo_iva, l.cuota_iva FROM facturas f"
+        " f.cuota_deducible AS deducible_fra, l.base, l.tipo_iva, l.cuota_iva, l.deducible FROM facturas f"
         " JOIN factura_lineas l ON l.factura_id=f.id WHERE f.entidad_id=? AND f.fecha BETWEEN ? AND ?",
         (entidad.id, desde, hasta),
     ).fetchall()
@@ -68,8 +68,7 @@ def _calcular(conn, entidad, desde, hasta) -> dict:
             else:
                 c["exentas"] += base
         else:
-            # parte deducible de la línea, prorrateando la cuota deducible de la factura
-            ded = round(cuota * r["deducible_fra"] / r["cuota_fra"]) if r["cuota_fra"] else 0
+            ded = r["deducible"]
             base_ded = round(base * ded / cuota) if cuota else 0
             op = r["tipo_operacion"]
             inv = bool(r["bien_inversion"])
@@ -89,9 +88,29 @@ def _calcular(conn, entidad, desde, hasta) -> dict:
                 c[k[0]] += base_ded
                 c[k[1]] += ded
     c["27"] = sum(c[k] for k in ("03", "06", "09", "152", "11", "13"))
-    c["45"] = sum(c[k] for k in ("29", "31", "33", "35", "37", "39"))
+    c["45"] = sum(c[k] for k in ("29", "31", "33", "35", "37", "39", "44"))
     c["46"] = c["27"] - c["45"]
     return {"casillas": c, "otros_tipos": sorted(otros_tipos)}
+
+
+def prorrata_definitiva(conn, entidad: Entidad, ejercicio: int) -> dict:
+    """Prorrata del año (art. 104 LIVA): operaciones con derecho a deducción / total, redondeada al entero
+    superior. Con ella se regulariza en el 4T el IVA de los gastos comunes y se fija la provisional del año siguiente."""
+    rows = conn.execute(
+        "SELECT tipo_operacion, SUM(base) FROM facturas WHERE entidad_id=? AND tipo='emitida' AND fecha BETWEEN ? AND ?"
+        " GROUP BY tipo_operacion", (entidad.id, f"{ejercicio}-01-01", f"{ejercicio}-12-31")).fetchall()
+    con_derecho = sum(r[1] for r in rows if r[0] in ("interior", "intracomunitaria", "exportacion", "isp", "no_sujeta"))
+    exentas = sum(r[1] for r in rows if r[0] == "exenta")
+    total = con_derecho + exentas
+    pct = 100 if total <= 0 else min(100, -(-con_derecho * 100 // total))
+    comun = conn.execute(
+        "SELECT COALESCE(SUM(l.cuota_iva),0), COALESCE(SUM(l.deducible),0) FROM factura_lineas l JOIN facturas f"
+        " ON f.id=l.factura_id WHERE f.entidad_id=? AND f.tipo='recibida' AND l.prorrata=1 AND f.fecha BETWEEN ? AND ?",
+        (entidad.id, f"{ejercicio}-01-01", f"{ejercicio}-12-31")).fetchone()
+    regularizacion = int(round(comun[0] * pct / 100)) - comun[1]
+    return {"ejercicio": ejercicio, "operaciones_con_derecho": con_derecho, "operaciones_exentas": exentas,
+            "prorrata_definitiva": pct, "prorrata_provisional": entidad.prorrata_pct,
+            "cuota_comun_soportada": comun[0], "cuota_comun_deducida": comun[1], "regularizacion": regularizacion}
 
 
 def modelo_303(conn, entidad: Entidad, ejercicio: int, t: int, compensar_anterior: int = 0) -> dict:
@@ -103,6 +122,12 @@ def modelo_303(conn, entidad: Entidad, ejercicio: int, t: int, compensar_anterio
     desde, hasta = trimestre(ejercicio, t)
     calc = _calcular(conn, entidad, desde, hasta)
     c = calc["casillas"]
+    prorrata = None
+    if entidad.regimen_iva == "prorrata" and t == 4:
+        prorrata = prorrata_definitiva(conn, entidad, ejercicio)
+        c["44"] = prorrata["regularizacion"]
+        c["45"] += c["44"]
+        c["46"] = c["27"] - c["45"]
     # Cuotas a compensar de trimestres anteriores del mismo ejercicio (resultados negativos T1-T3)
     pendiente = compensar_anterior
     for tt in range(1, t):
@@ -128,6 +153,7 @@ def modelo_303(conn, entidad: Entidad, ejercicio: int, t: int, compensar_anterio
         "compensacion_pendiente": max(pendiente - c["67"], 0) + (-c["71"] if c["71"] < 0 else 0),
         "otros_tipos": calc["otros_tipos"],
         "prorrata": entidad.prorrata_pct if entidad.regimen_iva == "prorrata" else None,
+        "regularizacion_prorrata": prorrata,
         "aviso": AVISO,
     }
 
@@ -137,7 +163,12 @@ def contabilizar_303(conn, entidad: Entidad, m303: dict) -> int | None:
     if not m303.get("obligado"):
         return None
     c = m303["casillas"]
-    ap = [Apunte("4770", debe=from_cents(c["27"])), Apunte("4720", haber=from_cents(c["45"]))]
+    reg = c.get("44", 0)  # regularización de prorrata: 6390 (más deducción) / 6340 (menos)
+    ap = [Apunte("4770", debe=from_cents(c["27"])), Apunte("4720", haber=from_cents(c["45"] - reg))]
+    if reg > 0:
+        ap.append(Apunte("6390", haber=from_cents(reg)))
+    elif reg < 0:
+        ap.append(Apunte("6340", debe=from_cents(-reg)))
     if c["67"]:
         ap.append(Apunte("4700", haber=from_cents(c["67"])))
     if c["71"] > 0:

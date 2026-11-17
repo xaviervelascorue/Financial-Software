@@ -4,6 +4,9 @@
 # tipo:         autonomo | comunidad_bienes | sociedad
 # regimen_iva:  general | prorrata | no_sujeto (holding pura) | exento
 # regimen_irpf: eds (directa simplificada) | edn (directa normal)   — sólo autónomos
+# Prorrata: regimen_iva = "prorrata", prorrata_pct = % provisional, sectores_diferenciados = 1 si las
+#           actividades sujetas y exentas son de CNAE distintos. Marcar las líneas exentas con iva_exento = true.
+# CB: renta_atribuida = "actividad" (se suma al 130 de los comuneros) | "capital_inmobiliario" (sólo Renta)
 # Importes en euros.
 
 [[entidad]]

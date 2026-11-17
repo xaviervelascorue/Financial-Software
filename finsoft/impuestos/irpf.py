@@ -45,13 +45,17 @@ def atribucion_rentas(conn, cb: Entidad, desde: str, hasta: str) -> list[dict]:
     return out
 
 
-def _cuota_atribuida(conn, autonomo: Entidad, desde: str, hasta: str) -> dict:
+def _cuota_atribuida(conn, autonomo: Entidad, desde: str, hasta: str, renta: str = "actividad") -> dict:
+    """Parte del comunero en las CB cuya renta es del tipo indicado ('actividad' → 130;
+    'capital_inmobiliario' → sólo declaración de la Renta)."""
     total = defaultdict(int)
     detalle = []
     for p in participadas(conn, autonomo):
         if p["participada_tipo"] != "comunidad_bienes":
             continue
         cb = get_entidad(conn, p["participada_id"])
+        if cb.renta_atribuida != renta:
+            continue
         for a in atribucion_rentas(conn, cb, desde, hasta):
             if a["entidad_id"] == autonomo.id:
                 for k in ("ingresos", "gastos", "rendimiento", "retenciones"):
@@ -181,7 +185,11 @@ def modelo_184(conn, cb: Entidad, ejercicio: int) -> dict:
     reparto = atribucion_rentas(conn, cb, desde, hasta)
     pct = sum(r["porcentaje"] for r in reparto)
     avisos = [] if abs(pct - 100) < 0.01 else [f"Los porcentajes de los comuneros suman {pct} %, no 100 %"]
+    if cb.renta_atribuida == "capital_inmobiliario":
+        avisos.append("Rendimientos del capital inmobiliario (vivienda de uso turístico sin servicios de hostelería): "
+                      "sin reducción por alquiler de vivienda habitual; intereses y conservación limitados a los ingresos.")
     return {"modelo": "184", "entidad": cb.codigo, "nif": cb.nif, "ejercicio": ejercicio,
+            "tipo_renta": cb.renta_atribuida,
             "rendimientos_actividad": total, "comuneros": reparto, "avisos": avisos, "aviso": AVISO}
 
 
@@ -190,11 +198,13 @@ def resumen_anual_autonomo(conn, autonomo: Entidad, ejercicio: int) -> dict:
     desde, hasta = rango_ejercicio(ejercicio)
     propio = rendimientos_actividad(conn, autonomo, desde, hasta)
     atrib = _cuota_atribuida(conn, autonomo, desde, hasta)
+    inmob = _cuota_atribuida(conn, autonomo, desde, hasta, "capital_inmobiliario")
     pagos = conn.execute(
         "SELECT COALESCE(SUM(ap.debe - ap.haber),0) FROM apuntes ap JOIN asientos a ON a.id=ap.asiento_id"
         " WHERE a.entidad_id=? AND ap.cuenta LIKE '4731%' AND a.fecha BETWEEN ? AND ?",
         (autonomo.id, desde, hasta)).fetchone()[0]
     return {"entidad": autonomo.codigo, "ejercicio": ejercicio, "actividad_propia": propio,
-            "atribuido_cb": atrib, "pagos_fraccionados_130_contabilizados": pagos,
+            "atribuido_cb": atrib, "atribuido_cb_capital_inmobiliario": inmob,
+            "pagos_fraccionados_130_contabilizados": pagos,
             "nota": "La reducción por gastos de difícil justificación y demás reducciones se aplican en el modelo 100."}
 

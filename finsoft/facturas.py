@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 
 from . import pgc
-from .entidades import Entidad, linea_id, tercero
+from .entidades import Entidad, linea_exenta, linea_id, tercero
 from .ledger import Apunte, crear_asiento
 from .money import D, from_cents, r2, to_cents
 
@@ -90,11 +90,16 @@ def preparar(conn, entidad: Entidad, f: FacturaInput) -> dict:
     lineas_calc = []
     for ln in f.lineas:
         base = r2(ln.base)
+        lid = linea_id(conn, entidad, ln.linea or f.linea) if (ln.linea or f.linea) else \
+            (habito["linea_id"] if habito else None)
+        exenta = linea_exenta(conn, lid) or (f.tipo == "emitida" and entidad.regimen_iva == "exento")
         tipo_iva = D(ln.tipo_iva)
-        if sin_iva_repercutido:
+        if sin_iva_repercutido or (f.tipo == "emitida" and exenta):
+            if f.tipo == "emitida" and exenta and tipo_iva:
+                avisos.append(f"La línea '{ln.concepto}' pertenece a una actividad exenta: se emite sin IVA")
             tipo_iva = Decimal("0")
-        cuota = r2(ln.cuota_iva) if ln.cuota_iva is not None and not sin_iva_repercutido else r2(base * tipo_iva / 100)
-        if ln.cuota_iva is not None and abs(r2(base * tipo_iva / 100) - cuota) > Decimal("0.05"):
+        cuota = r2(ln.cuota_iva) if ln.cuota_iva is not None and tipo_iva else r2(base * tipo_iva / 100)
+        if ln.cuota_iva is not None and tipo_iva and abs(r2(base * tipo_iva / 100) - cuota) > Decimal("0.05"):
             avisos.append(f"Cuota IVA de '{ln.concepto}' ({cuota}) no cuadra con {tipo_iva}% de {base}")
         if f.tipo == "recibida":
             cuenta = ln.cuenta or f.cuenta or (habito["cuenta"] if habito else None) or \
@@ -103,12 +108,19 @@ def preparar(conn, entidad: Entidad, f: FacturaInput) -> dict:
             cuenta = ln.cuenta or f.cuenta or (habito["cuenta"] if habito else None) or "7050"
         if not pgc.cuenta_valida(cuenta):
             raise ValueError(f"Cuenta no válida: {cuenta}")
-        lid = linea_id(conn, entidad, ln.linea or f.linea) if (ln.linea or f.linea) else \
-            (habito["linea_id"] if habito else None)
-        pct = ln.pct_deducible if ln.pct_deducible is not None else entidad.pct_deduccion_iva
+        # % de IVA deducible: explícito en la línea > sectores diferenciados por línea > régimen de la entidad
+        en_prorrata = False
+        if ln.pct_deducible is not None:
+            pct = ln.pct_deducible
+        elif entidad.regimen_iva == "prorrata" and entidad.sectores_diferenciados and lid is not None:
+            pct = 0.0 if exenta else 100.0
+        else:
+            pct = entidad.pct_deduccion_iva
+            en_prorrata = entidad.regimen_iva == "prorrata"
         deducible = r2(cuota * D(pct) / 100) if f.tipo == "recibida" else Decimal("0")
         lineas_calc.append(dict(concepto=ln.concepto, base=base, tipo_iva=tipo_iva, cuota=cuota, cuenta=cuenta,
-                                linea_id=lid, deducible=deducible))
+                                linea_id=lid, deducible=deducible, prorrata=en_prorrata and f.tipo == "recibida",
+                                exenta=exenta))
 
     base_total = sum((x["base"] for x in lineas_calc), Decimal("0"))
     cuota_total = sum((x["cuota"] for x in lineas_calc), Decimal("0"))
@@ -146,7 +158,10 @@ def preparar(conn, entidad: Entidad, f: FacturaInput) -> dict:
     if entidad.regimen_iva in ("no_sujeto", "exento") and f.tipo == "emitida" and cuota_total:
         avisos.append(f"{entidad.codigo} está configurada como '{entidad.regimen_iva}' y la factura emitida lleva IVA")
 
-    return dict(tercero_id=tid, lineas=lineas_calc, base=base_total, cuota=cuota_total, deducible=deducible_total,
+    tipo_operacion = f.tipo_operacion
+    if f.tipo == "emitida" and tipo_operacion == "interior" and all(x["exenta"] for x in lineas_calc):
+        tipo_operacion = "exenta"
+    return dict(tercero_id=tid, lineas=lineas_calc, tipo_operacion=tipo_operacion, base=base_total, cuota=cuota_total, deducible=deducible_total,
                 retencion=retencion, total=total_factura, apuntes=apuntes, cuenta_tercero=cuenta_tercero,
                 avisos=avisos)
 
@@ -161,7 +176,7 @@ def registrar(conn, entidad: Entidad, f: FacturaInput) -> int:
             "INSERT INTO facturas (entidad_id, tipo, numero, fecha, fecha_operacion, tercero_id, tipo_operacion,"
             " base, cuota_iva, cuota_deducible, retencion_tipo, retencion_pct, retencion, total, bien_inversion,"
             " cuenta_tercero, concepto, archivo, asiento_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (entidad.id, f.tipo, f.numero, f.fecha, f.fecha_operacion, p["tercero_id"], f.tipo_operacion,
+            (entidad.id, f.tipo, f.numero, f.fecha, f.fecha_operacion, p["tercero_id"], p["tipo_operacion"],
              to_cents(p["base"]), to_cents(p["cuota"]), to_cents(p["deducible"]), f.retencion_tipo,
              float(f.retencion_pct), to_cents(p["retencion"]), to_cents(p["total"]), int(f.bien_inversion),
              p["cuenta_tercero"], f.concepto or (f.lineas[0].concepto if f.lineas else ""), f.archivo, aid),
@@ -173,10 +188,10 @@ def registrar(conn, entidad: Entidad, f: FacturaInput) -> int:
         raise
     fid = cur.lastrowid
     conn.executemany(
-        "INSERT INTO factura_lineas (factura_id, concepto, base, tipo_iva, cuota_iva, cuenta, linea_id)"
-        " VALUES (?,?,?,?,?,?,?)",
+        "INSERT INTO factura_lineas (factura_id, concepto, base, tipo_iva, cuota_iva, cuenta, linea_id, deducible,"
+        " prorrata) VALUES (?,?,?,?,?,?,?,?,?)",
         [(fid, x["concepto"], to_cents(x["base"]), float(x["tipo_iva"]), to_cents(x["cuota"]), x["cuenta"],
-          x["linea_id"]) for x in p["lineas"]],
+          x["linea_id"], to_cents(x["deducible"]), int(x["prorrata"])) for x in p["lineas"]],
     )
     # Retenciones practicadas por la entidad (111 / 115)
     if f.tipo == "recibida" and p["retencion"]:

@@ -35,6 +35,8 @@ class Entidad:
     bins_pendientes: int
     rend_neto_anterior: int | None
     exento_130: bool
+    renta_atribuida: str = "actividad"
+    sectores_diferenciados: bool = False
 
     @classmethod
     def from_row(cls, r: sqlite3.Row) -> "Entidad":
@@ -45,6 +47,7 @@ class Entidad:
             modalidad_202=r["modalidad_202"], cuota_base_202=r["cuota_base_202"],
             cifra_negocios_anterior=r["cifra_negocios_anterior"], bins_pendientes=r["bins_pendientes"],
             rend_neto_anterior=r["rend_neto_anterior"], exento_130=bool(r["exento_130"]),
+            renta_atribuida=r["renta_atribuida"], sectores_diferenciados=bool(r["sectores_diferenciados"]),
         )
 
     @property
@@ -145,12 +148,13 @@ def tercero(conn, nif: str, nombre: str, pais: str = "ES") -> int:
 
 # ---------------------------------------------------------------- líneas
 
-def crear_linea(conn, entidad: Entidad, codigo: str, nombre: str, tipo="actividad", capital_invertido=0) -> int:
+def crear_linea(conn, entidad: Entidad, codigo: str, nombre: str, tipo="actividad", capital_invertido=0,
+                iva_exento: bool = False) -> int:
     cur = conn.execute(
-        "INSERT INTO lineas (entidad_id, codigo, nombre, tipo, capital_invertido) VALUES (?,?,?,?,?)"
+        "INSERT INTO lineas (entidad_id, codigo, nombre, tipo, capital_invertido, iva_exento) VALUES (?,?,?,?,?,?)"
         " ON CONFLICT(entidad_id, codigo) DO UPDATE SET nombre=excluded.nombre, tipo=excluded.tipo,"
-        " capital_invertido=excluded.capital_invertido",
-        (entidad.id, codigo.upper(), nombre, tipo, to_cents(capital_invertido)),
+        " capital_invertido=excluded.capital_invertido, iva_exento=excluded.iva_exento",
+        (entidad.id, codigo.upper(), nombre, tipo, to_cents(capital_invertido), int(bool(iva_exento))),
     )
     conn.commit()
     return linea_id(conn, entidad, codigo) or cur.lastrowid
@@ -163,6 +167,13 @@ def linea_id(conn, entidad: Entidad, codigo: str | None) -> int | None:
     if r is None:
         raise KeyError(f"Línea '{codigo}' no existe en {entidad.codigo}")
     return r["id"]
+
+
+def linea_exenta(conn, lid: int | None) -> bool:
+    if lid is None:
+        return False
+    r = conn.execute("SELECT iva_exento FROM lineas WHERE id=?", (lid,)).fetchone()
+    return bool(r and r["iva_exento"])
 
 
 def lineas(conn, entidad: Entidad) -> list[sqlite3.Row]:
@@ -187,7 +198,7 @@ def cargar_config(conn, path: str | Path) -> list[Entidad]:
             creadas.append(ent)
         for ln in lineas_cfg:
             crear_linea(conn, ent, ln["codigo"], ln["nombre"], ln.get("tipo", "actividad"),
-                        ln.get("capital_invertido", 0))
+                        ln.get("capital_invertido", 0), ln.get("iva_exento", False))
     for p in cfg.get("participacion", []):
         part = get_entidad(conn, p["participada"])
         tit = None

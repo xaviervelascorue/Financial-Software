@@ -86,7 +86,13 @@ Top clientes y proveedores.
   tributa como gastos de gestión).
 - **Holding**: los dividendos de empresas del grupo (7600) y los intereses de créditos (7620) forman parte de la
   cifra de negocios (consulta ICAC, BOICAC 79).
-- **Comunidad de bienes**: presenta 303 y 184. Sus rendimientos y retenciones se atribuyen a cada comunero según
+- **Prorrata y sectores diferenciados**: las líneas de ingreso pueden marcarse como exentas de IVA (p. ej.
+  docencia). Con `sectores_diferenciados`, el IVA de los gastos asignados a líneas sujetas se deduce al 100 %,
+  el de líneas exentas al 0 % y el de gastos comunes a la prorrata provisional; en el 4T se regulariza con la
+  prorrata definitiva (casilla 44, asiento a 6390/6340).
+- **Vivienda de uso turístico**: sin servicios de hostelería es una CB exenta de IVA cuya renta es capital
+  inmobiliario (`renta_atribuida = "capital_inmobiliario"`, no entra en el 130); con ellos, IVA del 10 % y actividad.
+- **Comunidad de bienes**: presenta 184 (y 303 si está sujeta). Sus rendimientos y retenciones se atribuyen a cada comunero según
   su porcentaje y se suman a su 130.
 - **Autónomos**: la contabilidad se lleva por partida doble con cuenta del titular (5500); los libros registro
   de IVA se generan a partir de ella.

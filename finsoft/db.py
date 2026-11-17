@@ -28,6 +28,10 @@ CREATE TABLE IF NOT EXISTS entidades (
     -- autónomos: rendimiento neto del ejercicio anterior (minoración art. 110.3.c RIRPF)
     rend_neto_anterior INTEGER,
     exento_130 INTEGER NOT NULL DEFAULT 0,
+    -- CB: 'actividad' (se atribuye al 130 de los comuneros) | 'capital_inmobiliario' (sólo Renta)
+    renta_atribuida TEXT NOT NULL DEFAULT 'actividad',
+    -- Prorrata: 1 = sectores diferenciados (gastos de líneas sujetas 100 %, exentas 0 %, comunes a prorrata)
+    sectores_diferenciados INTEGER NOT NULL DEFAULT 0,
     fecha_alta TEXT,
     epigrafe_iae TEXT,
     notas TEXT
@@ -71,6 +75,7 @@ CREATE TABLE IF NOT EXISTS lineas (
     nombre TEXT NOT NULL,
     tipo TEXT NOT NULL DEFAULT 'actividad',
     capital_invertido INTEGER NOT NULL DEFAULT 0,
+    iva_exento INTEGER NOT NULL DEFAULT 0,
     UNIQUE (entidad_id, codigo)
 );
 
@@ -107,7 +112,9 @@ CREATE TABLE IF NOT EXISTS factura_lineas (
     tipo_iva REAL NOT NULL,
     cuota_iva INTEGER NOT NULL,
     cuenta TEXT NOT NULL,
-    linea_id INTEGER REFERENCES lineas(id)
+    linea_id INTEGER REFERENCES lineas(id),
+    deducible INTEGER NOT NULL DEFAULT 0,
+    prorrata INTEGER NOT NULL DEFAULT 0  -- 1 = cuota común sujeta a prorrata (regularización anual)
 );
 
 CREATE TABLE IF NOT EXISTS cobros_pagos (
@@ -182,8 +189,22 @@ CREATE TABLE IF NOT EXISTS activos (
 """
 
 
+# Columnas añadidas después de la primera versión: se crean en bases de datos existentes.
+MIGRACIONES = [
+    ("entidades", "renta_atribuida", "TEXT NOT NULL DEFAULT 'actividad'"),
+    ("entidades", "sectores_diferenciados", "INTEGER NOT NULL DEFAULT 0"),
+    ("lineas", "iva_exento", "INTEGER NOT NULL DEFAULT 0"),
+    ("factura_lineas", "deducible", "INTEGER NOT NULL DEFAULT 0"),
+    ("factura_lineas", "prorrata", "INTEGER NOT NULL DEFAULT 0"),
+]
+
+
 def connect(path: str | Path = "finsoft.db") -> sqlite3.Connection:
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
+    for tabla, columna, ddl in MIGRACIONES:
+        if columna not in {r["name"] for r in conn.execute(f"PRAGMA table_info({tabla})")}:
+            conn.execute(f"ALTER TABLE {tabla} ADD COLUMN {columna} {ddl}")
+    conn.commit()
     return conn

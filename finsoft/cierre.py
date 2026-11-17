@@ -73,6 +73,12 @@ def _hojas_impuestos(lib: Libro, conn, e: Entidad, ejercicio: int, t: int) -> li
         resumen.append({"modelo": "303", "periodo": f"{t}T", "resultado": m303["resultado"], "nota": m303["tipo_resultado"]})
     else:
         resumen.append({"modelo": "303", "periodo": f"{t}T", "resultado": 0, "nota": m303["motivo"]})
+    if m303.get("regularizacion_prorrata"):
+        pr = m303["regularizacion_prorrata"]
+        lib.clave_valor("Prorrata", f"Prorrata definitiva {ejercicio}", {k: v for k, v in pr.items() if k != "ejercicio"},
+                        {"operaciones_con_derecho", "operaciones_exentas", "cuota_comun_soportada",
+                         "cuota_comun_deducida", "regularizacion"}, e.nombre,
+                        notas=[f"La prorrata definitiva ({pr['prorrata_definitiva']} %) será la provisional de {ejercicio + 1}."])
     if e.tipo == "autonomo":
         m130 = irpf.modelo_130(conn, e, ejercicio, t)
         lib.casillas("130", f"Modelo 130 · IRPF pago fraccionado {t}T {ejercicio}", m130["casillas"],
@@ -92,7 +98,9 @@ def _hojas_impuestos(lib: Libro, conn, e: Entidad, ejercicio: int, t: int) -> li
             ("comunero", "Comunero"), ("nif", "NIF"), ("porcentaje", "%"), ("ingresos", "Ingresos"),
             ("gastos", "Gastos"), ("rendimiento", "Rendimiento"), ("retenciones", "Retenciones")],
             irpf.atribucion_rentas(conn, e, da, ha), {"ingresos", "gastos", "rendimiento", "retenciones"},
-            notas=["Cada comunero incluye su parte en su propio modelo 130 y en su declaración de la renta."])
+            notas=["Cada comunero incluye su parte en su propio modelo 130 y en su declaración de la renta."
+                   if e.renta_atribuida == "actividad" else
+                   "Rendimiento del capital inmobiliario: no se incluye en el 130; cada comunero lo declara en la Renta."])
     if e.tipo == "sociedad" and t in PERIODO_202:
         m202 = sociedades.modelo_202(conn, e, ejercicio, PERIODO_202[t])
         lib.clave_valor("202", f"Modelo 202 · Pago fraccionado IS {m202['periodo']} {ejercicio}", m202["detalle"],
@@ -172,7 +180,8 @@ def paquete_anual(conn, e: Entidad, ejercicio: int, salida: str | Path = "inform
     if e.tipo == "autonomo":
         r = irpf.resumen_anual_autonomo(conn, e, ejercicio)
         datos = {**{f"propia_{k}": v for k, v in r["actividad_propia"].items()},
-                 **{f"cb_{k}": v for k, v in r["atribuido_cb"]["total"].items()},
+                 **{f"cb_actividad_{k}": v for k, v in r["atribuido_cb"]["total"].items()},
+                 **{f"cb_capital_inmobiliario_{k}": v for k, v in r["atribuido_cb_capital_inmobiliario"]["total"].items()},
                  "pagos_fraccionados_130": r["pagos_fraccionados_130_contabilizados"]}
         lib.clave_valor("Renta", f"Datos de actividad para la Renta {ejercicio}", datos, set(datos), e.nombre,
                         notas=[r["nota"]])

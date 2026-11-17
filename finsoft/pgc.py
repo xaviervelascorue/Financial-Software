@@ -93,6 +93,8 @@ CUENTAS = {
     "6290": "Otros servicios",
     "6300": "Impuesto corriente",
     "6310": "Otros tributos",
+    "6340": "Ajustes negativos en la imposición indirecta (regularización prorrata)",
+    "6390": "Ajustes positivos en la imposición indirecta (regularización prorrata)",
     "6400": "Sueldos y salarios",
     "6420": "Seguridad Social a cargo de la empresa / cuota de autónomos",
     "6490": "Otros gastos sociales",
