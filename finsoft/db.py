@@ -200,6 +200,7 @@ MIGRACIONES = [
     ("entidades", "valor_catastral", "INTEGER"),
     ("entidades", "valor_catastral_construccion", "INTEGER"),
     ("entidades", "catastral_revisado", "INTEGER NOT NULL DEFAULT 1"),
+    ("lineas", "palabras", "TEXT"),
 ]
 
 

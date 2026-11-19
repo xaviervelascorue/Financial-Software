@@ -81,40 +81,61 @@ def leer_plantilla(path: str | Path, linea: str | None = None) -> FacturaInput |
         m = re.search(r"(\d+(?:[.,]\d+)?)\s*%", str(celdas[p_iva]))
         if m:
             tipo_iva = D(m[1].replace(",", "."))
-    lineas = []
+    lineas, retencion_pct, retencion, exenta = [], Decimal("0"), Decimal("0"), False
     for r in range(p_desc[0] + 1, fin):
-        base = celdas.get((r, col_base))
-        if isinstance(base, (int, float)) and base:
-            lineas.append(dict(concepto=str(celdas.get((r, p_desc[1]), "")).strip(), base=D(base)))
+        texto = str(celdas.get((r, p_desc[1]), "")).strip()
+        valor = celdas.get((r, col_base))
+        fila = " ".join(_norm(v) for (rr, cc), v in celdas.items() if rr == r)
+        if re.search(r"EXENCI[OÓ]N|EXENT[OA]", fila):
+            exenta = True
+        if re.match(r"^(IRPF|RETENCI)", _norm(texto)):
+            m = re.search(r"(\d+(?:[.,]\d+)?)\s*%", texto)
+            retencion_pct = D(m[1].replace(",", ".")) if m else Decimal("0")
+            retencion += r2(abs(D(valor or 0)))
+        elif isinstance(valor, (int, float)) and valor:
+            lineas.append(dict(concepto=texto, base=D(valor)))
     if not lineas:
         raise PlantillaError("La factura no tiene líneas con base imponible")
     total = D(_a_la_derecha(celdas, p_total) or 0)
     cuota_doc = D(_a_la_derecha(celdas, p_iva) or 0) if p_iva else Decimal("0")
     avisos = []
-    # La plantilla calcula la base hacia atrás desde el total (con muchos decimales): se redondea y la
-    # cuota se ajusta para que base + IVA = total exacto de la factura.
+    if exenta:
+        tipo_iva = Decimal("0")
+    # La plantilla puede calcular la base hacia atrás desde el total (con muchos decimales): se redondea y
+    # la cuota se ajusta para que base + IVA - retención = total exacto de la factura.
     bases = [r2(ln["base"]) for ln in lineas]
-    cuota_total = r2(total) - sum(bases) if total else r2(cuota_doc)
+    cuota_total = r2(total) - sum(bases) + retencion if total else r2(cuota_doc)
     if abs(cuota_total - r2(sum(bases) * tipo_iva / 100)) > Decimal("0.05"):
         avisos.append(f"El IVA de la factura ({cuota_total}) no es el {tipo_iva} % de la base ({sum(bases)})")
+    if retencion and abs(retencion - r2(sum(bases) * retencion_pct / 100)) > Decimal("0.05"):
+        avisos.append(f"La retención ({retencion}) no es el {retencion_pct} % de la base")
     cuotas, acumulado = [], Decimal("0")
     for i, b in enumerate(bases):
         c = cuota_total - acumulado if i == len(bases) - 1 else r2(b * tipo_iva / 100)
         cuotas.append(c)
         acumulado += c
+    nif_re = r"\b([0-9XYZ]\d{7}[A-Z]|[A-Z]\d{7}[0-9A-J])\b"
     cabecera = " ".join(_norm(v) for (r, c), v in celdas.items() if r < p_cli[0])
-    if not re.search(r"\b[0-9XYZ]\d{7}[A-Z]\b|\b[A-Z]\d{7}[0-9A-J]\b", cabecera):
+    if not re.search(nif_re, cabecera):
         avisos.append("La plantilla no muestra el NIF del emisor (dato obligatorio en la factura)")
     # NIF del cliente: si aparece en el bloque "Facturar a"; sin él (clientes varios) no va al 347
     nif_cliente = ""
     for (r, c), v in celdas.items():
         if p_cli[0] < r < p_desc[0]:
-            m = re.search(r"\b([0-9XYZ]\d{7}[A-Z]|[A-Z]\d{7}[0-9A-J])\b", _norm(v))
+            m = re.search(nif_re, _norm(v))
             if m:
                 nif_cliente = m[1]
+    nombre = re.sub(r"\s*\(?(NIF|CIF)?:?\s*" + nif_re + r"\)?", "", str(cliente), flags=re.I).strip() \
+        if nif_cliente else str(cliente).strip()
+    varios = re.search(r"VARIOS|PARTICULARES", _norm(nombre)) is not None
+    if not nif_cliente and not varios:
+        avisos.append(f"Falta el NIF de '{nombre}' en la factura (obligatorio si el cliente es empresa o profesional)")
     return FacturaInput(
-        tipo="emitida", numero=numero, fecha=fecha, tercero_nif=nif_cliente, tercero_nombre=str(cliente).strip(),
+        tipo="emitida", numero=numero, fecha=fecha, tercero_nif=nif_cliente, tercero_nombre=nombre,
         lineas=[LineaFactura(base=b, tipo_iva=tipo_iva, concepto=ln["concepto"], cuota_iva=c, linea=linea)
                 for ln, b, c in zip(lineas, bases, cuotas)],
+        tipo_operacion="exenta" if exenta else "interior",
+        retencion_tipo="profesional" if retencion else "ninguna", retencion_pct=retencion_pct,
+        retencion_importe=retencion if retencion else None,
         total_declarado=r2(total) if total else None, archivo=str(path), avisos=avisos,
     )

@@ -208,10 +208,16 @@ def leer_factura(conn, path: str | Path, entidad: Entidad, client=None) -> Factu
     if Path(path).suffix.lower() in (".xlsx", ".xlsm"):
         from .plantillas import PlantillaError, leer_plantilla
         try:
-            fi = leer_plantilla(path, linea=ls[0]["codigo"] if len(ls) == 1 else None)
+            fi = leer_plantilla(path)
         except PlantillaError as e:
             raise ExtraccionError(f"{Path(path).name}: {e}") from e
         if fi is not None:
+            from .entidades import sugerir_linea
+            exenta = fi.tipo_operacion == "exenta" if any(r["iva_exento"] for r in ls) else None
+            for ln in fi.lineas:
+                ln.linea = sugerir_linea(conn, entidad, ln.concepto, exenta)
+                if ln.linea is None and ls:
+                    fi.avisos.append(f"No se ha podido asignar la línea de ingresos a '{ln.concepto}'")
             return fi
     txt = "\n".join(f"{r['codigo']}: {r['nombre']} ({r['tipo']})" for r in ls)
     fx = extraer(path, entidad, txt, client=client)

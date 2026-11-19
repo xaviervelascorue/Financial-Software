@@ -157,12 +157,15 @@ def tercero(conn, nif: str, nombre: str, pais: str = "ES") -> int:
 # ---------------------------------------------------------------- líneas
 
 def crear_linea(conn, entidad: Entidad, codigo: str, nombre: str, tipo="actividad", capital_invertido=0,
-                iva_exento: bool = False) -> int:
+                iva_exento: bool = False, palabras: list[str] | None = None) -> int:
+    """palabras: términos del concepto de la factura que identifican la línea (asignación automática)."""
     cur = conn.execute(
-        "INSERT INTO lineas (entidad_id, codigo, nombre, tipo, capital_invertido, iva_exento) VALUES (?,?,?,?,?,?)"
-        " ON CONFLICT(entidad_id, codigo) DO UPDATE SET nombre=excluded.nombre, tipo=excluded.tipo,"
-        " capital_invertido=excluded.capital_invertido, iva_exento=excluded.iva_exento",
-        (entidad.id, codigo.upper(), nombre, tipo, to_cents(capital_invertido), int(bool(iva_exento))),
+        "INSERT INTO lineas (entidad_id, codigo, nombre, tipo, capital_invertido, iva_exento, palabras)"
+        " VALUES (?,?,?,?,?,?,?) ON CONFLICT(entidad_id, codigo) DO UPDATE SET nombre=excluded.nombre,"
+        " tipo=excluded.tipo, capital_invertido=excluded.capital_invertido, iva_exento=excluded.iva_exento,"
+        " palabras=excluded.palabras",
+        (entidad.id, codigo.upper(), nombre, tipo, to_cents(capital_invertido), int(bool(iva_exento)),
+         "|".join(p.strip().lower() for p in palabras) if palabras else None),
     )
     conn.commit()
     return linea_id(conn, entidad, codigo) or cur.lastrowid
@@ -182,6 +185,25 @@ def linea_exenta(conn, lid: int | None) -> bool:
         return False
     r = conn.execute("SELECT iva_exento FROM lineas WHERE id=?", (lid,)).fetchone()
     return bool(r and r["iva_exento"])
+
+
+def sugerir_linea(conn, entidad: Entidad, concepto: str, exenta: bool | None = None) -> str | None:
+    """Línea cuyo nombre o palabras clave aparecen en el concepto. Si la operación es exenta (o no),
+    sólo se consideran las líneas con ese mismo tratamiento de IVA."""
+    import unicodedata
+
+    def plano(t):
+        return "".join(ch for ch in unicodedata.normalize("NFD", (t or "").lower()) if unicodedata.category(ch) != "Mn")
+
+    texto = plano(concepto)
+    candidatas = [r for r in lineas(conn, entidad) if exenta is None or bool(r["iva_exento"]) == exenta]
+    if len(candidatas) == 1:
+        return candidatas[0]["codigo"]
+    for r in candidatas:
+        terminos = [t for t in (r["palabras"] or "").split("|") if t] + [r["codigo"].lower()]
+        if any(plano(t) in texto for t in terminos):
+            return r["codigo"]
+    return None
 
 
 def lineas(conn, entidad: Entidad) -> list[sqlite3.Row]:
@@ -206,7 +228,7 @@ def cargar_config(conn, path: str | Path) -> list[Entidad]:
             creadas.append(ent)
         for ln in lineas_cfg:
             crear_linea(conn, ent, ln["codigo"], ln["nombre"], ln.get("tipo", "actividad"),
-                        ln.get("capital_invertido", 0), ln.get("iva_exento", False))
+                        ln.get("capital_invertido", 0), ln.get("iva_exento", False), ln.get("palabras"))
     for p in cfg.get("participacion", []):
         part = get_entidad(conn, p["participada"])
         tit = None
