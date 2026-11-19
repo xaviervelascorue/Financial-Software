@@ -91,7 +91,9 @@ def _hojas_impuestos(lib: Libro, conn, e: Entidad, ejercicio: int, t: int) -> li
                      notas=m130["avisos"] + [f"Atribución CB: {a['cb']} {a['porcentaje']} % → rendimiento "
                                              f"{a['rendimiento'] / 100:,.2f} €" for a in m130["atribucion_cb"]] + [m130["aviso"]])
         resumen.append({"modelo": "130", "periodo": f"{t}T", "resultado": m130["resultado"],
-                        "nota": "No presentar (exento)" if not m130["presentar"] else m130["tipo_resultado"]})
+                        "nota": m130["tipo_resultado"] if m130["presentar"] else
+                        f"No obligado ({m130['obligacion']['pct']} % con retención) · provisión Renta "
+                        f"{m130['provision_renta'] / 100:,.2f} €"})
     if e.tipo == "comunidad_bienes":
         da, ha = acumulado(ejercicio, t)
         lib.hoja("Atribución CB", f"Atribución de rentas a comuneros (acumulado {t}T)", [

@@ -74,6 +74,30 @@ def _minoracion_110(rend_anterior: int | None) -> int:
     return 0
 
 
+def pct_ingresos_con_retencion(conn, entidad: Entidad, desde: str, hasta: str) -> float | None:
+    """% de los ingresos de la actividad (facturas emitidas) sometidos a retención."""
+    total, con_ret = conn.execute(
+        "SELECT COALESCE(SUM(base),0), COALESCE(SUM(CASE WHEN retencion > 0 THEN base ELSE 0 END),0) FROM facturas"
+        " WHERE entidad_id=? AND tipo='emitida' AND fecha BETWEEN ? AND ?", (entidad.id, desde, hasta)).fetchone()
+    return round(con_ret * 100 / total, 1) if total > 0 else None
+
+
+def obligacion_130(conn, autonomo: Entidad, ejercicio: int, t: int) -> dict:
+    """Art. 109.1 RIRPF: los profesionales no presentan el 130 si al menos el 70 % de sus ingresos de la
+    actividad del año anterior tuvieron retención. En el año de inicio se mide con los ingresos del trimestre."""
+    if autonomo.exento_130:
+        return {"obligado": False, "criterio": "Marcada como exenta en la configuración", "pct": None}
+    pct_ant = pct_ingresos_con_retencion(conn, autonomo, f"{ejercicio - 1}-01-01", f"{ejercicio - 1}-12-31")
+    if pct_ant is not None:
+        criterio, pct = f"ingresos de {ejercicio - 1}", pct_ant
+    else:
+        pct = pct_ingresos_con_retencion(conn, autonomo, *trimestre(ejercicio, t))
+        criterio = f"ingresos del {t}T (año de inicio de actividad)"
+    if pct is None:
+        return {"obligado": True, "criterio": "sin ingresos facturados en el periodo", "pct": None}
+    return {"obligado": pct < 70, "criterio": criterio, "pct": pct}
+
+
 def modelo_130(conn, autonomo: Entidad, ejercicio: int, t: int) -> dict:
     if autonomo.tipo != "autonomo":
         raise ValueError("El modelo 130 sólo aplica a autónomos (las CB atribuyen a sus comuneros)")
@@ -94,7 +118,10 @@ def modelo_130(conn, autonomo: Entidad, ejercicio: int, t: int) -> dict:
     # pagos fraccionados de trimestres anteriores (casilla 07 positiva) y negativos pendientes
     previos, negativos = 0, 0
     for tt in range(1, t):
-        prev = modelo_130(conn, autonomo, ejercicio, tt)["casillas"]
+        prev_m = modelo_130(conn, autonomo, ejercicio, tt)
+        prev = prev_m["casillas"]
+        if not prev_m["presentar"]:
+            continue  # trimestre sin obligación: no hubo pago que descontar
         previos += max(prev["07"], 0)
         if prev["19"] < 0:
             negativos += -prev["19"]
@@ -112,17 +139,24 @@ def modelo_130(conn, autonomo: Entidad, ejercicio: int, t: int) -> dict:
     c["18"] = 0
     c["19"] = c["17"] - c["18"]
     avisos = []
-    if autonomo.exento_130:
-        avisos.append("Entidad marcada como exenta del 130 (más del 70 % de ingresos con retención el año anterior).")
-    if propio["ingresos"] and propio["retenciones"] and \
-            propio["retenciones"] / max(propio["ingresos"], 1) >= 0.14 and not autonomo.exento_130:
-        avisos.append("La mayor parte de los ingresos lleva retención: revisa si quedas exonerado del 130 (art. 109 RIRPF).")
+    ob = obligacion_130(conn, autonomo, ejercicio, t)
+    # Sin obligación, el cálculo sirve como provisión: diferencia entre el 20 % del rendimiento acumulado
+    # y las retenciones ya soportadas, que se regulariza en la Renta.
+    provision = max(c["04"] - c["06"], 0)
+    if not ob["obligado"]:
+        avisos.append(f"No obligado a presentar el 130: {ob['pct']} % de ingresos con retención ({ob['criterio']}); "
+                      "art. 109.1 RIRPF.")
+        if provision:
+            avisos.append(f"Provisión recomendada para la Renta: {provision / 100:,.2f} € (20 % del rendimiento menos "
+                          "retenciones). La cuota real depende de la escala y del resto de rentas.")
     return {
         "modelo": "130", "entidad": autonomo.codigo, "nif": autonomo.nif, "ejercicio": ejercicio, "periodo": f"{t}T",
         "desde": desde, "hasta": hasta, "casillas": c,
-        "resultado": max(c["19"], 0), "tipo_resultado": "A ingresar" if c["19"] > 0 else "Negativa / cero",
+        "resultado": max(c["19"], 0) if ob["obligado"] else 0,
+        "tipo_resultado": ("A ingresar" if c["19"] > 0 else "Negativa / cero") if ob["obligado"] else "No obligado",
+        "obligacion": ob, "provision_renta": provision,
         "gastos_dificil_justificacion": djust, "atribucion_cb": atrib["detalle"],
-        "presentar": not autonomo.exento_130, "avisos": avisos, "aviso": AVISO,
+        "presentar": ob["obligado"], "avisos": avisos, "aviso": AVISO,
     }
 
 

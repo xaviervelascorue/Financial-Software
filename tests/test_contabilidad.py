@@ -282,3 +282,16 @@ def test_sustituir_factura_emitida_corregida(conn, aut1):
     facturas.registrar_cobro_pago(conn, aut1, nuevo, "2026-07-30")
     with pytest.raises(ValueError):
         facturas.eliminar(conn, aut1, nuevo)
+
+
+def test_130_no_obligado_si_70_por_ciento_con_retencion(conn, aut1):
+    facturas.registrar(conn, aut1, fra("emitida", "1", "2026-07-02", "B1", "Empresa", [dict(base=Decimal("9000"))],
+                                       retencion_tipo="profesional", retencion_pct=Decimal("7")))
+    facturas.registrar(conn, aut1, fra("emitida", "2", "2026-07-20", "B2", "Particular", [dict(base=Decimal("1000"))]))
+    m = irpf.modelo_130(conn, aut1, 2026, 3)
+    assert m["obligacion"]["pct"] == 90.0 and not m["presentar"] and m["resultado"] == 0
+    assert m["provision_renta"] == m["casillas"]["04"] - 63000
+    facturas.registrar(conn, aut1, fra("emitida", "3", "2026-10-20", "B2", "Particular", [dict(base=Decimal("5000"))]))
+    m4 = irpf.modelo_130(conn, aut1, 2026, 4)
+    assert m4["presentar"] and m4["casillas"]["05"] == 0  # el 3T no se pagó
+    assert m4["resultado"] == m4["casillas"]["04"] - m4["casillas"]["06"]
