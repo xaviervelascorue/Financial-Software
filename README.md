@@ -49,6 +49,9 @@ finsoft factura cobro-pago --entidad AUT1 12 --fecha 2026-02-15
 finsoft apertura --entidad AUT1 --fecha 2026-10-01 saldos.csv
 finsoft asiento --entidad AUT1 asiento.json
 
+# Extracto bancario: concilia cobros con facturas y reparte la factura resumen mensual por línea de ingreso
+finsoft banco --entidad LRB extracto.xls --repartir
+
 # Gastos sin factura (cuota de autónomos, comisiones, IBI...)
 finsoft movimiento --entidad AUT1 --fecha 2026-01-31 --cuenta 6420 --importe 300 --concepto "Cuota RETA"
 

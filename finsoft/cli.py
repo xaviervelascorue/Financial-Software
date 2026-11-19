@@ -412,6 +412,36 @@ def cmd_provision_renta(ctx, entidad, ejercicio, t):
         click.secho(f"  ⚠ {a}", fg="yellow")
 
 
+@main.command("banco")
+@click.option("--entidad", required=True)
+@click.argument("extracto", type=click.Path(exists=True))
+@click.option("--repartir", is_flag=True, help="Reparte las facturas resumen del periodo entre líneas según los cobros")
+@click.pass_context
+def cmd_banco(ctx, entidad, extracto, repartir):
+    """Concilia los cobros del extracto bancario con las facturas emitidas y los reparte por línea de ingreso."""
+    from . import banco
+    conn, e = ctx.obj, _entidad(ctx, entidad)
+    movs = banco.repartir_cobros(banco.leer_movimientos(extracto), banco.Reglas.de_entidad(conn, e))
+    filas = banco.conciliar(conn, e, movs)
+    lineas_cod = sorted({k for f in filas for k in f if k not in ("mes", "cobros", "facturado", "diferencia")})
+    a_cent = [{k: (round(v * 100) if isinstance(v, float) else v) for k, v in f.items()} for f in filas]
+    _tabla(a_cent, [("mes", "Mes"), ("cobros", "Cobros banco"), ("facturado", "Facturado"), ("diferencia", "Diferencia")]
+           + [(l, l) for l in lineas_cod], {"cobros", "facturado", "diferencia", *lineas_cod})
+    dudosos = [m for m in movs if "sin descomposición" in m.nota]
+    if dudosos:
+        click.secho(f"  ⚠ {len(dudosos)} cobros con tarjeta agrupados sin descomposición exacta (asignados por defecto)",
+                    fg="yellow")
+    if repartir:
+        res = banco.resumen_mensual(movs)
+        for f in facturas.listar(conn, e, tipo="emitida"):
+            mes = f["fecha"][:7]
+            pesos = {k: v for k, v in res.get(mes, {}).items() if not k.startswith("_")}
+            n = conn.execute("SELECT COUNT(*) FROM factura_lineas WHERE factura_id=?", (f["id"],)).fetchone()[0]
+            if pesos and n == 1 and f["tercero_nif"].startswith("SIN-NIF"):
+                banco.repartir_factura(conn, e, f["id"], pesos)
+                click.echo(f"  ✔ Factura {f['numero']} repartida: " + ", ".join(f"{k} {v:,.2f}" for k, v in pesos.items()))
+
+
 @main.command("provisiones")
 @click.argument("ejercicio", type=int)
 @click.argument("t", type=click.IntRange(1, 4))

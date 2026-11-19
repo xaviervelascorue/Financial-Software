@@ -187,15 +187,18 @@ def tercero(conn, nif: str, nombre: str, pais: str = "ES") -> int:
 # ---------------------------------------------------------------- líneas
 
 def crear_linea(conn, entidad: Entidad, codigo: str, nombre: str, tipo="actividad", capital_invertido=0,
-                iva_exento: bool = False, palabras: list[str] | None = None) -> int:
-    """palabras: términos del concepto de la factura que identifican la línea (asignación automática)."""
+                iva_exento: bool = False, palabras: list[str] | None = None, multiplo_importe: float | None = None,
+                por_defecto: bool = False) -> int:
+    """palabras: términos del concepto (factura o cobro bancario) que identifican la línea.
+    multiplo_importe / por_defecto: reglas para repartir cobros bancarios entre líneas (ver banco.py)."""
     cur = conn.execute(
-        "INSERT INTO lineas (entidad_id, codigo, nombre, tipo, capital_invertido, iva_exento, palabras)"
-        " VALUES (?,?,?,?,?,?,?) ON CONFLICT(entidad_id, codigo) DO UPDATE SET nombre=excluded.nombre,"
-        " tipo=excluded.tipo, capital_invertido=excluded.capital_invertido, iva_exento=excluded.iva_exento,"
-        " palabras=excluded.palabras",
+        "INSERT INTO lineas (entidad_id, codigo, nombre, tipo, capital_invertido, iva_exento, palabras,"
+        " multiplo_importe, por_defecto) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(entidad_id, codigo) DO UPDATE SET"
+        " nombre=excluded.nombre, tipo=excluded.tipo, capital_invertido=excluded.capital_invertido,"
+        " iva_exento=excluded.iva_exento, palabras=excluded.palabras, multiplo_importe=excluded.multiplo_importe,"
+        " por_defecto=excluded.por_defecto",
         (entidad.id, codigo.upper(), nombre, tipo, to_cents(capital_invertido), int(bool(iva_exento)),
-         "|".join(p.strip().lower() for p in palabras) if palabras else None),
+         "|".join(p.strip().lower() for p in palabras) if palabras else None, multiplo_importe, int(bool(por_defecto))),
     )
     conn.commit()
     return linea_id(conn, entidad, codigo) or cur.lastrowid
@@ -260,7 +263,8 @@ def cargar_config(conn, path: str | Path) -> list[Entidad]:
             creadas.append(ent)
         for ln in lineas_cfg:
             crear_linea(conn, ent, ln["codigo"], ln["nombre"], ln.get("tipo", "actividad"),
-                        ln.get("capital_invertido", 0), ln.get("iva_exento", False), ln.get("palabras"))
+                        ln.get("capital_invertido", 0), ln.get("iva_exento", False), ln.get("palabras"),
+                        ln.get("multiplo_importe"), ln.get("por_defecto", False))
     for p in cfg.get("participacion", []):
         part = get_entidad(conn, p["participada"])
         tit = None
