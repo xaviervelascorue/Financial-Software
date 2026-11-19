@@ -295,3 +295,19 @@ def test_130_no_obligado_si_70_por_ciento_con_retencion(conn, aut1):
     m4 = irpf.modelo_130(conn, aut1, 2026, 4)
     assert m4["presentar"] and m4["casillas"]["05"] == 0  # el 3T no se pagó
     assert m4["resultado"] == m4["casillas"]["04"] - m4["casillas"]["06"]
+
+
+def test_130_parte_de_trimestre_presentado_y_compara(conn, aut1):
+    from finsoft.impuestos import presentadas
+    presentadas.registrar(conn, aut1, "130", 2026, "2T", {"01": 20000, "02": 4000, "03": 16000, "04": 3200,
+                                                          "07": 2000}, 2000)
+    presentadas.registrar(conn, aut1, "130", 2026, "1T", {"07": 1200}, 1200)
+    facturas.registrar(conn, aut1, fra("emitida", "1", "2026-07-15", "", "Clientes varios", [dict(base=Decimal("10000"))]))
+    m = irpf.modelo_130(conn, aut1, 2026, 3)
+    c = m["casillas"]
+    assert c["01"] == 3000000 and c["02"] == 400000 + 50000      # + 5 % de difícil justificación de julio
+    assert c["05"] == 320000                                     # 1T + 2T presentados
+    assert c["04"] == round((3000000 - 450000) * 0.20) and m["resultado"] == c["04"] - 320000
+    presentadas.registrar(conn, aut1, "130", 2026, "3T", {"01": 30000, "02": 4500, "07": 1780}, 1780)
+    filas = presentadas.comparar(m, presentadas.obtener(conn, aut1, "130", 2026, "3T"))
+    assert next(f for f in filas if f["casilla"] == "01")["cuadra"]

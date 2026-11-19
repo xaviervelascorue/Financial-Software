@@ -12,8 +12,7 @@ deducciones autonómicas. Las escalas son las vigentes conocidas y deben revisar
 
 from ..entidades import Entidad
 from ..fechas import trimestre
-from .irpf import MAX_GASTOS_DIFICIL_JUSTIFICACION, PCT_GASTOS_DIFICIL_JUSTIFICACION, modelo_130, \
-    rendimientos_actividad
+from .irpf import modelo_130
 from .renta import ficha_comunero
 from . import AVISO
 
@@ -44,12 +43,12 @@ def _cuota(base_eur: float, tramos) -> float:
 
 def estimar_renta(conn, autonomo: Entidad, ejercicio: int, hasta_trimestre: int = 4) -> dict:
     desde, hasta = f"{ejercicio}-01-01", trimestre(ejercicio, hasta_trimestre)[1]
-    act = rendimientos_actividad(conn, autonomo, desde, hasta)
-    rend_previo = act["ingresos"] - act["gastos"]
-    djust = 0
-    if autonomo.regimen_irpf == "eds" and rend_previo > 0:
-        djust = min(int(round(rend_previo * PCT_GASTOS_DIFICIL_JUSTIFICACION / 100)), MAX_GASTOS_DIFICIL_JUSTIFICACION)
-    rend_neto = rend_previo - djust
+    # Mismos acumulados que el 130 (incluye lo presentado antes de usar FinSoft y la parte de CB de actividad)
+    m130 = modelo_130(conn, autonomo, ejercicio, hasta_trimestre)
+    c = m130["casillas"]
+    djust = m130["gastos_dificil_justificacion"]
+    act = {"ingresos": c["01"], "gastos": c["02"] - djust, "retenciones": c["06"]}
+    rend_neto = c["03"]
     avisos = []
     reduccion = 0
     ini = autonomo.anio_inicio_actividad
@@ -72,7 +71,11 @@ def estimar_renta(conn, autonomo: Entidad, ejercicio: int, hasta_trimestre: int 
     cuota_estatal = int(round(_cuota(base_eur, ESCALA_ESTATAL) * 100))
     cuota_autonomica = int(round(_cuota(base_eur, tramos_auto) * 100))
     cuota = cuota_estatal + cuota_autonomica
-    pagos_130 = sum(modelo_130(conn, autonomo, ejercicio, t)["resultado"] for t in range(1, hasta_trimestre + 1))
+    from . import presentadas
+    pagos_130 = 0
+    for t in range(1, hasta_trimestre + 1):
+        pres = presentadas.obtener(conn, autonomo, "130", ejercicio, f"{t}T")
+        pagos_130 += pres["resultado"] if pres else modelo_130(conn, autonomo, ejercicio, t)["resultado"]
     retenciones = act["retenciones"] + autonomo.otras_retenciones
     a_pagar = cuota - retenciones - pagos_130
     tipo_medio = round(cuota / base * 100, 1) if base > 0 else 0

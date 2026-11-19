@@ -129,8 +129,13 @@ def modelo_303(conn, entidad: Entidad, ejercicio: int, t: int, compensar_anterio
         c["45"] += c["44"]
         c["46"] = c["27"] - c["45"]
     # Cuotas a compensar de trimestres anteriores del mismo ejercicio (resultados negativos T1-T3)
+    from . import presentadas
     pendiente = compensar_anterior
     for tt in range(1, t):
+        pres = presentadas.obtener(conn, entidad, "303", ejercicio, f"{tt}T")
+        if pres:  # lo presentado manda: queda pendiente lo que resultó a compensar
+            pendiente = -pres["resultado"] if pres["resultado"] < 0 else pres["casillas"].get("87", 0)
+            continue
         prev = _calcular(conn, entidad, *trimestre(ejercicio, tt))["casillas"]["46"]
         neto = prev - pendiente
         pendiente = -neto if neto < 0 else 0

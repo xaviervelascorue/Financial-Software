@@ -172,6 +172,20 @@ CREATE TABLE IF NOT EXISTS ajustes_fiscales (
     referencia TEXT
 );
 
+-- Autoliquidaciones presentadas (por la gestoría o por FinSoft): base para validar y para arrastrar datos
+CREATE TABLE IF NOT EXISTS liquidaciones (
+    id INTEGER PRIMARY KEY,
+    entidad_id INTEGER NOT NULL REFERENCES entidades(id),
+    modelo TEXT NOT NULL,
+    ejercicio INTEGER NOT NULL,
+    periodo TEXT NOT NULL,
+    casillas TEXT NOT NULL,          -- JSON {casilla: céntimos}
+    resultado INTEGER NOT NULL,
+    fecha_presentacion TEXT,
+    justificante TEXT,
+    UNIQUE (entidad_id, modelo, ejercicio, periodo)
+);
+
 CREATE TABLE IF NOT EXISTS activos (
     id INTEGER PRIMARY KEY,
     entidad_id INTEGER NOT NULL REFERENCES entidades(id),

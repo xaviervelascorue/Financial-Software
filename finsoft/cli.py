@@ -442,6 +442,49 @@ def cmd_banco(ctx, entidad, extracto, repartir):
                 click.echo(f"  ✔ Factura {f['numero']} repartida: " + ", ".join(f"{k} {v:,.2f}" for k, v in pesos.items()))
 
 
+@main.command("presentada")
+@click.option("--entidad", required=True)
+@click.option("--modelo", required=True, type=click.Choice(["303", "130", "111", "115", "123", "202"]))
+@click.argument("ejercicio", type=int)
+@click.argument("periodo")
+@click.option("--casilla", "-c", multiple=True, help="Casilla=importe, p. ej. -c 01=39313.74 -c 02=8316.07")
+@click.option("--resultado", type=float, required=True)
+@click.option("--fecha")
+@click.option("--justificante")
+@click.pass_context
+def cmd_presentada(ctx, entidad, modelo, ejercicio, periodo, casilla, resultado, fecha, justificante):
+    """Registra una autoliquidación ya presentada (p. ej. por la gestoría) para validarla y arrastrar sus datos."""
+    from .impuestos import presentadas
+    cas = {}
+    for c in casilla:
+        k, v = c.split("=")
+        cas[k.strip().zfill(2)] = float(v.replace(",", "."))
+    presentadas.registrar(ctx.obj, _entidad(ctx, entidad), modelo, ejercicio, periodo, cas, resultado, fecha, justificante)
+    click.echo(f"Modelo {modelo} {periodo} {ejercicio} registrado")
+
+
+@main.command("comparar")
+@click.option("--entidad", required=True)
+@click.option("--modelo", required=True, type=click.Choice(["303", "130"]))
+@click.argument("ejercicio", type=int)
+@click.argument("t", type=click.IntRange(1, 4))
+@click.pass_context
+def cmd_comparar(ctx, entidad, modelo, ejercicio, t):
+    """Compara casilla a casilla el cálculo de FinSoft con la autoliquidación presentada."""
+    from .impuestos import irpf, iva, presentadas
+    e = _entidad(ctx, entidad)
+    pres = presentadas.obtener(ctx.obj, e, modelo, ejercicio, f"{t}T")
+    if pres is None:
+        raise click.ClickException("No hay autoliquidación presentada registrada para ese periodo")
+    calc = iva.modelo_303(ctx.obj, e, ejercicio, t) if modelo == "303" else irpf.modelo_130(ctx.obj, e, ejercicio, t)
+    filas = presentadas.comparar(calc, pres, iva.NOMBRES_303 if modelo == "303" else None)
+    for f in filas:
+        f["estado"] = "✔" if f["cuadra"] else "✖"
+    _tabla(filas, [("casilla", "Casilla"), ("descripcion", "Descripción"), ("finsoft", "FinSoft"),
+                   ("presentado", "Presentado"), ("diferencia", "Diferencia"), ("estado", "")],
+           {"finsoft", "presentado", "diferencia"})
+
+
 @main.command("provisiones")
 @click.argument("ejercicio", type=int)
 @click.argument("t", type=click.IntRange(1, 4))

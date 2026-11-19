@@ -82,6 +82,12 @@ def _minoracion_110(rend_anterior: int | None) -> int:
     return 0
 
 
+def _hay_movimientos(conn, entidad: Entidad, desde: str, hasta: str) -> bool:
+    return conn.execute("SELECT 1 FROM apuntes ap JOIN asientos a ON a.id=ap.asiento_id WHERE a.entidad_id=?"
+                        " AND a.fecha BETWEEN ? AND ? AND (ap.cuenta LIKE '6%' OR ap.cuenta LIKE '7%') LIMIT 1",
+                        (entidad.id, desde, hasta)).fetchone() is not None
+
+
 def pct_ingresos_con_retencion(conn, entidad: Entidad, desde: str, hasta: str) -> float | None:
     """% de los ingresos de la actividad (facturas emitidas) sometidos a retención."""
     total, con_ret = conn.execute(
@@ -109,9 +115,18 @@ def obligacion_130(conn, autonomo: Entidad, ejercicio: int, t: int) -> dict:
 def modelo_130(conn, autonomo: Entidad, ejercicio: int, t: int) -> dict:
     if autonomo.tipo != "autonomo":
         raise ValueError("El modelo 130 sólo aplica a autónomos (las CB atribuyen a sus comuneros)")
+    from . import presentadas
     desde, hasta = acumulado(ejercicio, t)
-    propio = rendimientos_actividad(conn, autonomo, desde, hasta)
-    atrib = _cuota_atribuida(conn, autonomo, desde, hasta)
+    # Si FinSoft empezó a contabilizar después de un trimestre ya presentado, sus acumulados (01, 02, 06) son
+    # el punto de partida y sólo se suma lo contabilizado desde entonces.
+    base_previa, desde_libros = None, desde
+    for tt in range(t - 1, 0, -1):
+        prev = presentadas.obtener(conn, autonomo, "130", ejercicio, f"{tt}T")
+        if prev and not _hay_movimientos(conn, autonomo, desde, trimestre(ejercicio, tt)[1]):
+            base_previa, desde_libros = prev["casillas"], trimestre(ejercicio, tt + 1)[0]
+            break
+    propio = rendimientos_actividad(conn, autonomo, desde_libros, hasta)
+    atrib = _cuota_atribuida(conn, autonomo, desde_libros, hasta)
     ingresos = propio["ingresos"] + atrib["total"].get("ingresos", 0)
     gastos = propio["gastos"] + atrib["total"].get("gastos", 0)
     djust = 0
@@ -119,24 +134,29 @@ def modelo_130(conn, autonomo: Entidad, ejercicio: int, t: int) -> dict:
         djust = min(int(round((ingresos - gastos) * PCT_GASTOS_DIFICIL_JUSTIFICACION / 100)),
                     MAX_GASTOS_DIFICIL_JUSTIFICACION)
     c = {}
-    c["01"] = ingresos
-    c["02"] = gastos + djust
+    c["01"] = ingresos + (base_previa or {}).get("01", 0)
+    c["02"] = gastos + djust + (base_previa or {}).get("02", 0)
     c["03"] = c["01"] - c["02"]
     c["04"] = int(round(c["03"] * PCT_130 / 100)) if c["03"] > 0 else 0
     # pagos fraccionados de trimestres anteriores (casilla 07 positiva) y negativos pendientes
     previos, negativos = 0, 0
     for tt in range(1, t):
-        prev_m = modelo_130(conn, autonomo, ejercicio, tt)
-        prev = prev_m["casillas"]
-        if not prev_m["presentar"]:
-            continue  # trimestre sin obligación: no hubo pago que descontar
+        presentada = presentadas.obtener(conn, autonomo, "130", ejercicio, f"{tt}T")
+        if presentada:  # lo realmente presentado manda sobre el cálculo
+            prev = {"07": presentada["casillas"].get("07", 0), "19": presentada["resultado"],
+                    "15": presentada["casillas"].get("15", 0)}
+        else:
+            prev_m = modelo_130(conn, autonomo, ejercicio, tt)
+            prev = prev_m["casillas"]
+            if not prev_m["presentar"]:
+                continue  # trimestre sin obligación: no hubo pago que descontar
         previos += max(prev["07"], 0)
         if prev["19"] < 0:
             negativos += -prev["19"]
         else:
             negativos = max(negativos - prev["15"], 0)
     c["05"] = previos
-    c["06"] = propio["retenciones"] + atrib["total"].get("retenciones", 0)
+    c["06"] = propio["retenciones"] + atrib["total"].get("retenciones", 0) + (base_previa or {}).get("06", 0)
     c["07"] = c["04"] - c["05"] - c["06"]
     c["12"] = c["07"]
     c["13"] = _minoracion_110(autonomo.rend_neto_anterior)
