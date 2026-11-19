@@ -210,6 +210,21 @@ def eliminar(conn, entidad: Entidad, factura_id: int, commit: bool = True):
         conn.commit()
 
 
+def asignar_linea(conn, entidad: Entidad, factura_id: int, linea: str | None):
+    """Cambia la línea de ingreso/negocio de una factura ya contabilizada (líneas y apuntes de gasto/ingreso)."""
+    from .entidades import linea_id as _lid
+    f = conn.execute("SELECT * FROM facturas WHERE id=? AND entidad_id=?", (factura_id, entidad.id)).fetchone()
+    if f is None:
+        raise KeyError(f"Factura {factura_id} no encontrada en {entidad.codigo}")
+    lid = _lid(conn, entidad, linea) if linea else None
+    conn.execute("UPDATE factura_lineas SET linea_id=? WHERE factura_id=?", (lid, factura_id))
+    conn.execute("UPDATE apuntes SET linea_id=? WHERE asiento_id=? AND (cuenta LIKE '6%' OR cuenta LIKE '7%')",
+                 (lid, f["asiento_id"]))
+    conn.execute("UPDATE habitos SET linea_id=? WHERE entidad_id=? AND tercero_id=? AND tipo=?",
+                 (lid, entidad.id, f["tercero_id"], f["tipo"]))
+    conn.commit()
+
+
 def registrar(conn, entidad: Entidad, f: FacturaInput, sustituir: bool = False) -> int:
     """Graba la factura y su asiento. Devuelve el id de la factura. Con sustituir=True, una factura emitida
     con el mismo número (p. ej. una versión corregida) reemplaza a la anterior."""

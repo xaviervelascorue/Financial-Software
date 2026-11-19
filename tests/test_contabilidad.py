@@ -311,3 +311,11 @@ def test_130_parte_de_trimestre_presentado_y_compara(conn, aut1):
     presentadas.registrar(conn, aut1, "130", 2026, "3T", {"01": 30000, "02": 4500, "07": 1780}, 1780)
     filas = presentadas.comparar(m, presentadas.obtener(conn, aut1, "130", 2026, "3T"))
     assert next(f for f in filas if f["casilla"] == "01")["cuadra"]
+
+
+def test_asignar_linea_a_factura(conn, aut1):
+    fid = facturas.registrar(conn, aut1, fra("recibida", "X", "2026-07-01", "B9", "Proveedor",
+                                             [dict(base=Decimal("100"), cuenta="6290")]))
+    facturas.asignar_linea(conn, aut1, fid, "SERV")
+    r = {x["codigo"]: x for x in informes.rentabilidad_por_linea(conn, aut1, "2026-07-01", "2026-07-31")["lineas"]}
+    assert r["SERV"]["costes_directos"] == 10000  # IVA deducible: no es coste

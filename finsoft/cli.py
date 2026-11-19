@@ -158,6 +158,20 @@ def factura_leer(ctx, entidad, fichero, si, sustituir):
     _leer_y_registrar(ctx.obj, _entidad(ctx, entidad), Path(fichero), si, sustituir)
 
 
+@factura.command("linea")
+@click.option("--entidad", required=True)
+@click.argument("factura_id", type=int)
+@click.argument("linea", required=False)
+@click.pass_context
+def factura_linea(ctx, entidad, factura_id, linea):
+    """Asigna una factura a una línea de ingreso (sin LINEA, pasa a gasto común)."""
+    try:
+        facturas.asignar_linea(ctx.obj, _entidad(ctx, entidad), factura_id, linea)
+    except KeyError as ex:
+        raise click.ClickException(str(ex))
+    click.echo("Línea actualizada")
+
+
 @factura.command("borrar")
 @click.option("--entidad", required=True)
 @click.argument("factura_id", type=int)
