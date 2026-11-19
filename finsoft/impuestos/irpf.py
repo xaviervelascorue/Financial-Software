@@ -12,18 +12,26 @@ from . import AVISO
 PCT_130 = Decimal("20")
 PCT_GASTOS_DIFICIL_JUSTIFICACION = Decimal("5")
 MAX_GASTOS_DIFICIL_JUSTIFICACION = 200000  # céntimos (2.000 €)
+LIMITE_SEGURO_SALUD = 50000  # céntimos por persona asegurada y año (art. 30.2.5ª.a LIRPF)
 
 
 def rendimientos_actividad(conn, entidad: Entidad, desde: str, hasta: str) -> dict:
     """Ingresos y gastos de la actividad económica (excluye rendimientos/pérdidas financieras
     de inversiones, que tributan como capital mobiliario, y el impuesto sobre beneficios)."""
     s = saldos(conn, entidad, desde, hasta, excluir_origen=("regularizacion",))
-    ingresos = gastos = 0
+    ingresos = gastos = seguro_salud = 0
     for c, (d, h) in s.items():
         if c.startswith("7") and not c.startswith(("760", "761", "763", "766")):
             ingresos += h - d
+        elif c.startswith("6251"):
+            seguro_salud += d - h
         elif c.startswith("6") and not c.startswith(("630", "663", "666")):
             gastos += d - h
+    # Seguro de enfermedad del titular y familia: deducible hasta 500 € por persona y año
+    if entidad.tipo == "autonomo":
+        gastos += min(seguro_salud, LIMITE_SEGURO_SALUD * max(entidad.asegurados_salud, 1))
+    else:
+        gastos += seguro_salud
     retenciones = conn.execute(
         "SELECT COALESCE(SUM(retencion),0) FROM facturas WHERE entidad_id=? AND tipo='emitida' AND fecha BETWEEN ? AND ?",
         (entidad.id, desde, hasta),

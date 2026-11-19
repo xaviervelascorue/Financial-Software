@@ -205,6 +205,8 @@ MIGRACIONES = [
     ("entidades", "comunidad_autonoma", "TEXT NOT NULL DEFAULT 'madrid'"),
     ("entidades", "otras_rentas", "INTEGER NOT NULL DEFAULT 0"),
     ("entidades", "otras_retenciones", "INTEGER NOT NULL DEFAULT 0"),
+    ("entidades", "pct_superficie_afecta", "REAL NOT NULL DEFAULT 0"),
+    ("entidades", "asegurados_salud", "INTEGER NOT NULL DEFAULT 1"),
 ]
 
 

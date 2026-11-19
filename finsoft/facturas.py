@@ -29,6 +29,9 @@ class LineaFactura:
     cuota_iva: Decimal | None = None
     # % de IVA deducible de esta línea (p. ej. 50 en vehículos de autónomos). None = el de la entidad
     pct_deducible: float | None = None
+    # % del coste que es gasto de la actividad; el resto es gasto personal del titular (cuenta 5500).
+    # P. ej. suministros de la vivienda habitual: 30 % × % de superficie afecta (art. 30.2.5ª.b LIRPF).
+    pct_gasto: float | None = None
 
 
 @dataclass
@@ -53,6 +56,8 @@ class FacturaInput:
     vida_util: float | None = None
     archivo: str | None = None
     avisos: list[str] = field(default_factory=list)
+    # Suministros de la vivienda habitual parcialmente afecta (luz, gas, agua, internet)
+    suministro_vivienda: bool = False
 
     @classmethod
     def from_dict(cls, d: dict) -> "FacturaInput":
@@ -108,8 +113,18 @@ def preparar(conn, entidad: Entidad, f: FacturaInput) -> dict:
             cuenta = ln.cuenta or f.cuenta or (habito["cuenta"] if habito else None) or "7050"
         if not pgc.cuenta_valida(cuenta):
             raise ValueError(f"Cuenta no válida: {cuenta}")
-        # % de IVA deducible: explícito en la línea > sectores diferenciados por línea > régimen de la entidad
+        # % de IVA deducible: explícito en la línea > vivienda afecta > sectores diferenciados > régimen de la entidad
         en_prorrata = False
+        pct_gasto = ln.pct_gasto
+        if f.suministro_vivienda and f.tipo == "recibida":
+            sup = entidad.pct_superficie_afecta
+            if not sup:
+                avisos.append("Falta el % de superficie de la vivienda afecta a la actividad (pct_superficie_afecta): "
+                              "no se deduce nada del suministro")
+            if ln.pct_deducible is None:
+                ln.pct_deducible = min(sup, entidad.pct_deduccion_iva)
+            if pct_gasto is None:
+                pct_gasto = 30 * sup / 100
         if ln.pct_deducible is not None:
             pct = ln.pct_deducible
         elif entidad.regimen_iva == "prorrata" and entidad.sectores_diferenciados and lid is not None:
@@ -118,9 +133,11 @@ def preparar(conn, entidad: Entidad, f: FacturaInput) -> dict:
             pct = entidad.pct_deduccion_iva
             en_prorrata = entidad.regimen_iva == "prorrata"
         deducible = r2(cuota * D(pct) / 100) if f.tipo == "recibida" else Decimal("0")
+        coste = base + cuota - deducible
+        gasto = r2(coste * D(pct_gasto) / 100) if pct_gasto is not None and f.tipo == "recibida" else coste
         lineas_calc.append(dict(concepto=ln.concepto, base=base, tipo_iva=tipo_iva, cuota=cuota, cuenta=cuenta,
                                 linea_id=lid, deducible=deducible, prorrata=en_prorrata and f.tipo == "recibida",
-                                exenta=exenta))
+                                exenta=exenta, gasto=gasto, personal=coste - gasto))
 
     base_total = sum((x["base"] for x in lineas_calc), Decimal("0"))
     cuota_total = sum((x["cuota"] for x in lineas_calc), Decimal("0"))
@@ -135,7 +152,10 @@ def preparar(conn, entidad: Entidad, f: FacturaInput) -> dict:
     apuntes: list[Apunte] = []
     if f.tipo == "recibida":
         for x in lineas_calc:
-            apuntes.append(Apunte(x["cuenta"], debe=x["base"] + x["cuota"] - x["deducible"], linea_id=x["linea_id"]))
+            apuntes.append(Apunte(x["cuenta"], debe=x["gasto"], linea_id=x["linea_id"]))
+        personal = sum((x["personal"] for x in lineas_calc), Decimal("0"))
+        if personal:
+            apuntes.append(Apunte("5500", debe=personal))
         if deducible_total:
             apuntes.append(Apunte("4720", debe=deducible_total))
         if autoliq and cuota_total:

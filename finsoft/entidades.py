@@ -45,6 +45,8 @@ class Entidad:
     comunidad_autonoma: str = "madrid"
     otras_rentas: int = 0
     otras_retenciones: int = 0
+    pct_superficie_afecta: float = 0.0
+    asegurados_salud: int = 1
 
     @classmethod
     def from_row(cls, r: sqlite3.Row) -> "Entidad":
@@ -61,6 +63,7 @@ class Entidad:
             catastral_revisado=bool(r["catastral_revisado"]),
             anio_inicio_actividad=r["anio_inicio_actividad"], comunidad_autonoma=r["comunidad_autonoma"],
             otras_rentas=r["otras_rentas"], otras_retenciones=r["otras_retenciones"],
+            pct_superficie_afecta=r["pct_superficie_afecta"], asegurados_salud=r["asegurados_salud"],
         )
 
     @property

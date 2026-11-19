@@ -65,3 +65,29 @@ def test_migracion_bd_existente(tmp_path):
     c.close()
     conn = db.connect(ruta)
     assert "iva_exento" in {r["name"] for r in conn.execute("PRAGMA table_info(lineas)")}
+
+
+def test_suministros_vivienda_afecta(conn):
+    from finsoft.entidades import actualizar_entidad, get_entidad
+    a = get_entidad(conn, "AUT1")
+    actualizar_entidad(conn, a, {"pct_superficie_afecta": 20})
+    a = get_entidad(conn, "AUT1")
+    fi = FacturaInput("recibida", "L1", "2026-07-01", "A95554630", "Eléctrica",
+                      [LineaFactura(base=Decimal("100"), cuenta="6280")], suministro_vivienda=True)
+    p = facturas.preparar(conn, a, fi)
+    ap = {x.cuenta: x for x in p["apuntes"]}
+    assert p["deducible"] == Decimal("4.20")               # 20 % del IVA (21)
+    assert ap["6280"].debe == Decimal("7.01")              # 30 % × 20 % de 116,80
+    assert ap["5500"].debe == Decimal("116.80") - Decimal("7.01")
+    assert ap["4100"].haber == Decimal("121.00")
+
+
+def test_seguro_salud_limitado(conn):
+    from finsoft import operaciones
+    from finsoft.entidades import get_entidad
+    a = get_entidad(conn, "AUT1")
+    facturas.registrar(conn, a, fra("emitida", "1", "2026-02-01", [dict(base=Decimal("10000"))]))
+    for m in range(1, 13):
+        operaciones.movimiento_directo(conn, a, f"2026-{m:02d}-05", "Seguro médico", "6251", 60)
+    r = irpf.rendimientos_actividad(conn, a, "2026-01-01", "2026-12-31")
+    assert r["gastos"] == 50000  # 720 € pagados, 500 € deducibles

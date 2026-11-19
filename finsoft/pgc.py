@@ -87,6 +87,7 @@ CUENTAS = {
     "6230": "Servicios de profesionales independientes",
     "6240": "Transportes",
     "6250": "Primas de seguros",
+    "6251": "Primas de seguro de enfermedad del titular (límite 500 €/persona, art. 30.2.5ª.a LIRPF)",
     "6260": "Servicios bancarios y similares",
     "6270": "Publicidad, propaganda y relaciones públicas",
     "6280": "Suministros",
