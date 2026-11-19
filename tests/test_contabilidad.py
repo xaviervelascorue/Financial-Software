@@ -267,3 +267,18 @@ def test_347_excluye_factura_resumen_particulares(conn, aut1):
     facturas.registrar(conn, aut1, fra("emitida", "R-01", "2026-01-31", "", "Clientes particulares (resumen enero)",
                                        [dict(base=Decimal("4000"))]))
     assert informativas.modelo_347(conn, aut1, 2026)["declarados"] == []
+
+
+def test_sustituir_factura_emitida_corregida(conn, aut1):
+    f1 = fra("emitida", "2026-002", "2026-07-02", "", "Cliente SL", [dict(base=Decimal("100"))])
+    fid = facturas.registrar(conn, aut1, f1)
+    f2 = fra("emitida", "2026-002", "2026-07-02", "B12345674", "Cliente SL", [dict(base=Decimal("100"))])
+    with pytest.raises(facturas.FacturaDuplicada):
+        facturas.registrar(conn, aut1, f2)
+    nuevo = facturas.registrar(conn, aut1, f2, sustituir=True)
+    assert conn.execute("SELECT COUNT(*) FROM facturas").fetchone()[0] == 1
+    assert conn.execute("SELECT COUNT(*) FROM asientos").fetchone()[0] == 1
+    assert fid and ledger.saldo(conn, aut1, "7050") == -10000
+    facturas.registrar_cobro_pago(conn, aut1, nuevo, "2026-07-30")
+    with pytest.raises(ValueError):
+        facturas.eliminar(conn, aut1, nuevo)

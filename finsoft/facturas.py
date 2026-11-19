@@ -166,8 +166,40 @@ def preparar(conn, entidad: Entidad, f: FacturaInput) -> dict:
                 avisos=avisos)
 
 
-def registrar(conn, entidad: Entidad, f: FacturaInput) -> int:
-    """Graba la factura y su asiento. Devuelve el id de la factura."""
+def buscar_emitida(conn, entidad: Entidad, numero: str):
+    return conn.execute("SELECT * FROM facturas WHERE entidad_id=? AND tipo='emitida' AND numero=?",
+                        (entidad.id, numero)).fetchone()
+
+
+def eliminar(conn, entidad: Entidad, factura_id: int, commit: bool = True):
+    """Borra una factura con su asiento, retenciones y activos. No se permite si tiene cobros o pagos."""
+    f = conn.execute("SELECT * FROM facturas WHERE id=? AND entidad_id=?", (factura_id, entidad.id)).fetchone()
+    if f is None:
+        raise KeyError(f"Factura {factura_id} no encontrada en {entidad.codigo}")
+    if conn.execute("SELECT 1 FROM cobros_pagos WHERE factura_id=?", (factura_id,)).fetchone():
+        raise ValueError(f"La factura {f['numero']} tiene cobros o pagos registrados: bórralos antes")
+    if conn.execute("SELECT 1 FROM activos WHERE factura_id=? AND amortizado > 0", (factura_id,)).fetchone():
+        raise ValueError(f"La factura {f['numero']} tiene activos ya amortizados")
+    conn.execute("DELETE FROM retenciones WHERE factura_id=?", (factura_id,))
+    conn.execute("DELETE FROM activos WHERE factura_id=?", (factura_id,))
+    conn.execute("DELETE FROM factura_lineas WHERE factura_id=?", (factura_id,))
+    conn.execute("DELETE FROM facturas WHERE id=?", (factura_id,))
+    conn.execute("DELETE FROM apuntes WHERE asiento_id=?", (f["asiento_id"],))
+    conn.execute("DELETE FROM asientos WHERE id=?", (f["asiento_id"],))
+    if commit:
+        conn.commit()
+
+
+def registrar(conn, entidad: Entidad, f: FacturaInput, sustituir: bool = False) -> int:
+    """Graba la factura y su asiento. Devuelve el id de la factura. Con sustituir=True, una factura emitida
+    con el mismo número (p. ej. una versión corregida) reemplaza a la anterior."""
+    if f.tipo == "emitida":
+        previa = buscar_emitida(conn, entidad, f.numero)
+        if previa is not None:
+            if not sustituir:
+                raise FacturaDuplicada(f"Ya existe la factura emitida {f.numero} (fecha {previa['fecha']}). "
+                                       "Si es una versión corregida, usa la opción de sustituir.")
+            eliminar(conn, entidad, previa["id"], commit=False)
     p = preparar(conn, entidad, f)
     concepto = f"Fra. {'emitida' if f.tipo == 'emitida' else 'recibida'} {f.numero} - {f.tercero_nombre}"
     try:

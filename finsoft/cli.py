@@ -123,7 +123,7 @@ def factura_alta(ctx, entidad, fichero, si):
                 click.secho(f"  ✖ {ex}", fg="red")
 
 
-def _leer_y_registrar(conn, e, path: Path, si: bool) -> bool:
+def _leer_y_registrar(conn, e, path: Path, si: bool, sustituir: bool = False) -> bool:
     try:
         fi = leer_factura(conn, path, e)
     except ExtraccionError as ex:
@@ -139,7 +139,7 @@ def _leer_y_registrar(conn, e, path: Path, si: bool) -> bool:
         return False
     if si or click.confirm("  ¿Contabilizar?", default=True):
         try:
-            fid = facturas.registrar(conn, e, fi)
+            fid = facturas.registrar(conn, e, fi, sustituir=sustituir)
             click.secho(f"  ✔ Registrada (id {fid})", fg="green")
             return True
         except facturas.FacturaDuplicada as ex:
@@ -151,10 +151,24 @@ def _leer_y_registrar(conn, e, path: Path, si: bool) -> bool:
 @click.option("--entidad", required=True)
 @click.argument("fichero", type=click.Path(exists=True))
 @click.option("--si", is_flag=True, help="Contabilizar sin confirmar si no hay avisos")
+@click.option("--sustituir", is_flag=True, help="Reemplaza la factura emitida con el mismo número (versión corregida)")
 @click.pass_context
-def factura_leer(ctx, entidad, fichero, si):
-    """Lee una factura en PDF o imagen con IA y propone el asiento."""
-    _leer_y_registrar(ctx.obj, _entidad(ctx, entidad), Path(fichero), si)
+def factura_leer(ctx, entidad, fichero, si, sustituir):
+    """Lee una factura (Excel de plantilla, PDF o imagen) y propone el asiento."""
+    _leer_y_registrar(ctx.obj, _entidad(ctx, entidad), Path(fichero), si, sustituir)
+
+
+@factura.command("borrar")
+@click.option("--entidad", required=True)
+@click.argument("factura_id", type=int)
+@click.pass_context
+def factura_borrar(ctx, entidad, factura_id):
+    """Borra una factura y su asiento (sólo si no tiene cobros ni pagos)."""
+    try:
+        facturas.eliminar(ctx.obj, _entidad(ctx, entidad), factura_id)
+    except (KeyError, ValueError) as ex:
+        raise click.ClickException(str(ex))
+    click.echo("Factura borrada")
 
 
 @main.command()
