@@ -12,7 +12,7 @@ from .estados import balance_filas, pyg_filas
 from .extraccion import FORMATOS, ExtraccionError, leer_factura
 from .fechas import trimestre
 from .impuestos import iva, pagar
-from .money import fmt, from_cents
+from .money import fmt, from_cents, r2
 
 
 def _tabla(filas: list[dict], columnas: list[tuple[str, str]], moneda=()):
@@ -497,6 +497,36 @@ def cmd_comparar(ctx, entidad, modelo, ejercicio, t):
     _tabla(filas, [("casilla", "Casilla"), ("descripcion", "Descripción"), ("finsoft", "FinSoft"),
                    ("presentado", "Presentado"), ("diferencia", "Diferencia"), ("estado", "")],
            {"finsoft", "presentado", "diferencia"})
+
+
+@main.command("tickets")
+@click.option("--entidad", required=True)
+@click.argument("extracto", type=click.Path(exists=True))
+@click.option("--desde", help="Sólo cobros desde esta fecha (AAAA-MM-DD)")
+@click.option("--simular", is_flag=True, help="Muestra los tiques que se emitirían sin grabarlos")
+@click.option("--fecha-expedicion", help="Sólo para pruebas: fecha de expedición distinta de hoy")
+@click.option("--mostrar", is_flag=True, help="Imprime cada tique emitido")
+@click.pass_context
+def cmd_tickets(ctx, entidad, extracto, desde, simular, fecha_expedicion, mostrar):
+    """Emite facturas simplificadas (tiques) y rectificativas de los cobros del extracto que aún no tienen."""
+    from . import banco, tickets
+    conn, e = ctx.obj, _entidad(ctx, entidad)
+    movs = [m for m in banco.leer_movimientos(extracto) if not desde or m.fecha >= desde]
+    try:
+        res = tickets.desde_banco(conn, e, movs, fecha_expedicion=fecha_expedicion, simular=simular)
+    except ValueError as ex:
+        raise click.ClickException(str(ex))
+    filas = [{"numero": t["numero"], "fecha_operacion": t["fecha_operacion"], "medio": t.get("medio", ""),
+              "linea": t["linea"], "total": int(r2(t["total"]) * 100), "avisos": "; ".join(t["avisos"])}
+             for t in res["emitidos"]]
+    _tabla(filas, [("numero", "Número"), ("fecha_operacion", "Cobro"), ("medio", "Medio"), ("linea", "Línea"),
+                   ("total", "Total"), ("avisos", "Avisos")], {"total"})
+    click.echo(f"{len(filas)} tiques {'a emitir (simulación)' if simular else 'emitidos'}")
+    for p in res["pendientes"]:
+        click.secho(f"  ⚠ {p['fecha']} {p['concepto']} {p['importe']:.2f} €: {p['motivo']}", fg="yellow")
+    if mostrar and not simular:
+        for t in res["emitidos"]:
+            click.echo("\n" + tickets.texto_tique(conn, e, t["id"]))
 
 
 @main.command("calendario")

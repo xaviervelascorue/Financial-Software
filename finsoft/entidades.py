@@ -48,6 +48,7 @@ class Entidad:
     pct_superficie_afecta: float = 0.0
     asegurados_salud: int = 1
     pct_retencion_anterior: float | None = None
+    domicilio: str | None = None
 
     @classmethod
     def from_row(cls, r: sqlite3.Row) -> "Entidad":
@@ -65,7 +66,7 @@ class Entidad:
             anio_inicio_actividad=r["anio_inicio_actividad"], comunidad_autonoma=r["comunidad_autonoma"],
             otras_rentas=r["otras_rentas"], otras_retenciones=r["otras_retenciones"],
             pct_superficie_afecta=r["pct_superficie_afecta"], asegurados_salud=r["asegurados_salud"],
-            pct_retencion_anterior=r["pct_retencion_anterior"],
+            pct_retencion_anterior=r["pct_retencion_anterior"], domicilio=r["domicilio"],
         )
 
     @property

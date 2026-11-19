@@ -66,6 +66,10 @@ finsoft trimestre 2026 1
 finsoft liquidar-iva --entidad AUT1 2026 1
 finsoft pagar --entidad AUT1 --modelo 303 --importe 155.40 --fecha 2026-04-20
 
+# Tiques (facturas simplificadas) de los cobros del banco: uno por cobro, el mismo día; devoluciones → rectificativa
+finsoft tickets --entidad LRB extracto.xls --simular
+finsoft tickets --entidad LRB extracto.xls --mostrar
+
 # Calendario de obligaciones y de envío de documentación (también en Excel)
 finsoft calendario 2027 --excel calendario_2027.xlsx
 

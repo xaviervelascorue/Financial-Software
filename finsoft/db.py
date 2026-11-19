@@ -224,6 +224,12 @@ MIGRACIONES = [
     ("lineas", "multiplo_importe", "REAL"),
     ("lineas", "por_defecto", "INTEGER NOT NULL DEFAULT 0"),
     ("entidades", "pct_retencion_anterior", "REAL"),
+    # F1 completa · F2 simplificada (tique) · R5 rectificativa de simplificada (claves Verifactu)
+    ("facturas", "tipo_factura", "TEXT NOT NULL DEFAULT 'F1'"),
+    ("facturas", "rectifica_id", "INTEGER"),
+    ("facturas", "referencia_cobro", "TEXT"),
+    ("facturas", "fecha_hora_expedicion", "TEXT"),
+    ("entidades", "domicilio", "TEXT"),
 ]
 
 
