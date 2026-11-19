@@ -77,7 +77,7 @@ def test_retencion_y_nif_cliente(tmp_path):
 
 def test_exenta_y_linea_por_palabras(conn, tmp_path):
     from finsoft.entidades import crear_entidad, crear_linea
-    x = crear_entidad(conn, "PX", "Profesional mixto", "00000001R", "autonomo", "prorrata", prorrata_pct=50,
+    x = crear_entidad(conn, "PX", "Profesional mixto", "99999999R", "autonomo", "prorrata", prorrata_pct=50,
                       sectores_diferenciados=1)
     crear_linea(conn, x, "CONSULT", "Consultoría", palabras=["asesoramiento"])
     crear_linea(conn, x, "FORMACION", "Formación", iva_exento=True, palabras=["formación", "programa"])
