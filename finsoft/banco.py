@@ -84,12 +84,15 @@ def leer_movimientos(path: str | Path) -> list[Movimiento]:
     cab = next((i for i, f in enumerate(filas) if f and _plano(str(f[0])) == "fecha"), None)
     if cab is None:
         raise ValueError("No se encuentra la fila de cabecera con 'fecha' en el extracto")
+    cabecera = [_plano(str(x)) for x in filas[cab]]
+    # columnas de importe: las que se llaman "importe..." y las columnas sin título tras la fecha valor
+    # (algunos bancos ponen cargos y abonos en dos columnas); nunca el saldo ni columnas de notas de texto
+    cols = [i for i, h in enumerate(cabecera) if i >= 2 and ("importe" in h or (h == "" and i >= 3))]
     movs = []
     for f in filas[cab + 1:]:
-        if not f or not str(f[0]).strip():
+        if not f or not str(f[0]).strip() or not re.match(r"\d", str(f[0]).strip()):
             continue
-        # columnas: fecha | concepto | fecha valor | importe (| importe en columna separada para cargos)
-        vals = [_num(x) for x in f[3:]] if len(f) > 3 else [_num(x) for x in f[2:]]
+        vals = [_num(f[i]) for i in cols if i < len(f)]
         imp = sum(v for v in vals if v is not None)
         movs.append(Movimiento(_fecha(f[0]), str(f[1]).strip(), round(imp, 2)))
     return [clasificar_tipo(m) for m in movs]

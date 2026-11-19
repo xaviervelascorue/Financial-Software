@@ -50,3 +50,11 @@ def test_repartir_factura_resumen(conn, tmp_path):
     assert sum(r["base"] for r in ls) == 100000 and sum(r["cuota_iva"] for r in ls) == 21000
     rent = {r["codigo"]: r for r in informes.rentabilidad_por_linea(conn, e, "2026-07-01", "2026-07-31")["lineas"]}
     assert rent["TERAPIA"]["ingresos"] == round(100000 * 132 / 453)
+
+
+def test_extracto_con_columna_saldo(tmp_path):
+    ruta = tmp_path / "e.csv"
+    ruta.write_text("fecha;concepto;fecha valor;importe;saldo;\n01/01/2026;RECIBO X;01/01/2026;-10,00;990,00;nota\n"
+                    "02/01/2026;ENVIO BIZUM Sesion;02/01/2026;33,00;1023,00;\n;;;23,00;;\n", encoding="utf-8")
+    movs = banco.leer_movimientos(ruta)
+    assert [m.importe for m in movs] == [-10.0, 33.0]
