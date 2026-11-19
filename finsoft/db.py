@@ -223,6 +223,7 @@ MIGRACIONES = [
     ("entidades", "asegurados_salud", "INTEGER NOT NULL DEFAULT 1"),
     ("lineas", "multiplo_importe", "REAL"),
     ("lineas", "por_defecto", "INTEGER NOT NULL DEFAULT 0"),
+    ("entidades", "pct_retencion_anterior", "REAL"),
 ]
 
 

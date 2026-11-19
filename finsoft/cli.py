@@ -499,6 +499,32 @@ def cmd_comparar(ctx, entidad, modelo, ejercicio, t):
            {"finsoft", "presentado", "diferencia"})
 
 
+@main.command("calendario")
+@click.argument("ejercicio", type=int)
+@click.option("--desde", help="Mostrar sólo desde esta fecha (AAAA-MM-DD)")
+@click.option("--entidad", help="Sólo una entidad")
+@click.option("--internos/--sin-internos", default=True, help="Incluir los envíos de documentación y cierres de FinSoft")
+@click.option("--excel", type=click.Path(), help="Guardar también en Excel")
+@click.pass_context
+def cmd_calendario(ctx, ejercicio, desde, entidad, internos, excel):
+    """Calendario de obligaciones fiscales, mercantiles y de reporting del ejercicio."""
+    from . import calendario
+    obs = calendario.obligaciones(ctx.obj, ejercicio)
+    filas = [o.fila() for o in obs if (not desde or o.fecha.isoformat() >= desde)
+             and (not entidad or o.entidad in (entidad.upper(), "GRUPO")) and (internos or o.tipo != "interno")]
+    _tabla(filas, [("fecha", "Fecha límite"), ("entidad", "Entidad"), ("modelo", "Modelo"), ("periodo", "Periodo"),
+                   ("descripcion", "Qué"), ("condicion", "Condición")])
+    if excel:
+        from .excel import Libro
+        lib = Libro()
+        lib.hoja("Calendario", f"Calendario fiscal y de reporting {ejercicio}", [
+            ("fecha", "Fecha límite"), ("domiciliacion", "Límite domiciliación"), ("entidad", "Entidad"),
+            ("modelo", "Modelo"), ("periodo", "Periodo"), ("descripcion", "Obligación"), ("condicion", "Condición"),
+            ("informacion", "Información a enviar"), ("tipo", "Tipo")], filas,
+            notas=["Plazos generales; revisar cada año el calendario del contribuyente de la AEAT."])
+        click.echo(f"✔ {lib.guardar(excel)}")
+
+
 @main.command("provisiones")
 @click.argument("ejercicio", type=int)
 @click.argument("t", type=click.IntRange(1, 4))

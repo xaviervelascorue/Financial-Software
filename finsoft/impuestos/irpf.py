@@ -102,6 +102,9 @@ def obligacion_130(conn, autonomo: Entidad, ejercicio: int, t: int) -> dict:
     if autonomo.exento_130:
         return {"obligado": False, "criterio": "Marcada como exenta en la configuración", "pct": None}
     pct_ant = pct_ingresos_con_retencion(conn, autonomo, f"{ejercicio - 1}-01-01", f"{ejercicio - 1}-12-31")
+    if pct_ant is None and autonomo.pct_retencion_anterior is not None and \
+            (autonomo.anio_inicio_actividad or 0) < ejercicio:
+        pct_ant = autonomo.pct_retencion_anterior  # año anterior no contabilizado en FinSoft (dato de configuración)
     if pct_ant is not None:
         criterio, pct = f"ingresos de {ejercicio - 1}", pct_ant
     else:
