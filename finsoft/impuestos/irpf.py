@@ -117,12 +117,12 @@ def modelo_130(conn, autonomo: Entidad, ejercicio: int, t: int) -> dict:
         raise ValueError("El modelo 130 sólo aplica a autónomos (las CB atribuyen a sus comuneros)")
     from . import presentadas
     desde, hasta = acumulado(ejercicio, t)
-    # Si FinSoft empezó a contabilizar después de un trimestre ya presentado, sus acumulados (01, 02, 06) son
-    # el punto de partida y sólo se suma lo contabilizado desde entonces.
+    # Lo presentado manda: los acumulados (01, 02, 06) del último trimestre presentado del año son el punto
+    # de partida y sólo se suma lo contabilizado en los trimestres posteriores.
     base_previa, desde_libros = None, desde
     for tt in range(t - 1, 0, -1):
         prev = presentadas.obtener(conn, autonomo, "130", ejercicio, f"{tt}T")
-        if prev and not _hay_movimientos(conn, autonomo, desde, trimestre(ejercicio, tt)[1]):
+        if prev:
             base_previa, desde_libros = prev["casillas"], trimestre(ejercicio, tt + 1)[0]
             break
     propio = rendimientos_actividad(conn, autonomo, desde_libros, hasta)
