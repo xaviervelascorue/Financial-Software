@@ -7,7 +7,7 @@ from .entidades import Entidad, listar_entidades
 from .estados import balance_filas, cierre_regularizacion, pyg_filas
 from .excel import Libro
 from .fechas import acumulado, ejercicio as rango_ejercicio, trimestre
-from .impuestos import informativas, iva, irpf, renta, sociedades
+from .impuestos import estimacion_renta, informativas, iva, irpf, renta, sociedades
 from .operaciones import dotar_amortizaciones
 
 PERIODO_202 = {1: 1, 3: 2, 4: 3}  # trimestre en el que se presenta → periodo (abril, octubre, diciembre)
@@ -94,6 +94,14 @@ def _hojas_impuestos(lib: Libro, conn, e: Entidad, ejercicio: int, t: int) -> li
                         "nota": m130["tipo_resultado"] if m130["presentar"] else
                         f"No obligado ({m130['obligacion']['pct']} % con retención) · provisión Renta "
                         f"{m130['provision_renta'] / 100:,.2f} €"})
+    if e.tipo == "autonomo":
+        est = estimacion_renta.estimar_renta(conn, e, ejercicio, t)
+        lib.hoja("Provisión Renta", f"Provisión para la Renta {ejercicio} · {e.nombre}",
+                 [("concepto", "Concepto"), ("importe", "Importe")], estimacion_renta.filas(est), {"importe"},
+                 f"Datos contabilizados hasta {est['datos_hasta']} · tipo medio estimado {est['tipo_medio_pct']} %",
+                 nivel_key="nivel", notas=est["avisos"] + [est["aviso"]])
+        resumen.append({"modelo": f"Renta {ejercicio}", "periodo": "provisión", "resultado": est["provision_necesaria"],
+                        "nota": f"Importe a tener apartado para la Renta {ejercicio} (estimación)"})
     if e.tipo == "comunidad_bienes":
         da, ha = acumulado(ejercicio, t)
         lib.hoja("Atribución CB", f"Atribución de rentas a comuneros (acumulado {t}T)", [
@@ -156,6 +164,15 @@ def paquete_grupo(conn, ejercicio: int, t: int, salida: str | Path = "informes")
     lib.hoja("Participaciones", "Estructura societaria", [
         ("titular", "Titular"), ("participada", "Participada"), ("porcentaje", "%"), ("coste", "Coste"),
         ("resultado_atribuible", "Resultado atribuible")], g["participaciones"], {"coste", "resultado_atribuible"})
+    pv = informes.provisiones_grupo(conn, ejercicio, t)
+    filas = pv["entidades"] + [{"nombre": "TOTAL GRUPO", **pv["total"], "nivel": 0}]
+    lib.hoja("Provisiones", f"Provisiones de impuestos · {t}T {ejercicio}", [
+        ("nombre", "Entidad"), ("trimestral", f"Liquidaciones {t}T"), ("detalle_trimestral", "Detalle"),
+        ("anual", "Provisión impuesto anual"), ("concepto_anual", "Concepto"), ("total", "Total a apartar")],
+        filas, {"trimestral", "anual", "total"}, nivel_key="nivel",
+        notas=["Liquidaciones: se pagan del 1 al 20 del mes siguiente al trimestre.",
+               "Provisión anual: estimación con los datos contabilizados hasta la fecha (Renta en junio, IS en julio)."])
+    lib.wb.move_sheet("Provisiones", -(len(lib.wb.sheetnames) - 1))
     return lib.guardar(Path(salida) / str(ejercicio) / f"{t}T" / f"GRUPO_{ejercicio}_{t}T.xlsx")
 
 

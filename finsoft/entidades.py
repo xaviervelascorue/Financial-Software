@@ -41,6 +41,10 @@ class Entidad:
     valor_catastral: int | None = None
     valor_catastral_construccion: int | None = None
     catastral_revisado: bool = True
+    anio_inicio_actividad: int | None = None
+    comunidad_autonoma: str = "madrid"
+    otras_rentas: int = 0
+    otras_retenciones: int = 0
 
     @classmethod
     def from_row(cls, r: sqlite3.Row) -> "Entidad":
@@ -55,6 +59,8 @@ class Entidad:
             referencia_catastral=r["referencia_catastral"], valor_catastral=r["valor_catastral"],
             valor_catastral_construccion=r["valor_catastral_construccion"],
             catastral_revisado=bool(r["catastral_revisado"]),
+            anio_inicio_actividad=r["anio_inicio_actividad"], comunidad_autonoma=r["comunidad_autonoma"],
+            otras_rentas=r["otras_rentas"], otras_retenciones=r["otras_retenciones"],
         )
 
     @property
@@ -81,8 +87,7 @@ def crear_entidad(conn, codigo, nombre, nif, tipo, regimen_iva="general", **kw) 
     }
     if tipo == "autonomo":
         campos["regimen_irpf"] = kw.pop("regimen_irpf", "eds")
-    for k in ("cuota_base_202", "cifra_negocios_anterior", "bins_pendientes", "rend_neto_anterior", "valor_catastral",
-              "valor_catastral_construccion"):
+    for k in CAMPOS_IMPORTE:
         if k in kw and kw[k] is not None:
             kw[k] = to_cents(kw[k])
     campos.update({k: v for k, v in kw.items() if v is not None})
@@ -91,6 +96,28 @@ def crear_entidad(conn, codigo, nombre, nif, tipo, regimen_iva="general", **kw) 
     conn.execute(f"INSERT INTO entidades ({cols}) VALUES ({marks})", list(campos.values()))
     conn.commit()
     return get_entidad(conn, codigo)
+
+
+CAMPOS_IMPORTE = ("cuota_base_202", "cifra_negocios_anterior", "bins_pendientes", "rend_neto_anterior",
+                  "valor_catastral", "valor_catastral_construccion", "otras_rentas", "otras_retenciones")
+
+
+def actualizar_entidad(conn, entidad: Entidad, datos: dict):
+    """Aplica a una entidad existente los cambios del fichero de configuración."""
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(entidades)")} - {"id", "codigo"}
+    cambios = {}
+    for k, v in datos.items():
+        if k not in cols or v is None:
+            continue
+        if k == "nif":
+            v = normalizar_nif(v)
+        elif k in CAMPOS_IMPORTE:
+            v = to_cents(v)
+        cambios[k] = v
+    if cambios:
+        conn.execute(f"UPDATE entidades SET {', '.join(f'{k}=?' for k in cambios)} WHERE id=?",
+                     [*cambios.values(), entidad.id])
+        conn.commit()
 
 
 def get_entidad(conn, codigo_o_id) -> Entidad:
@@ -222,6 +249,8 @@ def cargar_config(conn, path: str | Path) -> list[Entidad]:
         e = dict(e)
         lineas_cfg = e.pop("linea", [])
         try:
+            ent = get_entidad(conn, e["codigo"])
+            actualizar_entidad(conn, ent, e)
             ent = get_entidad(conn, e["codigo"])
         except KeyError:
             ent = crear_entidad(conn, **e)

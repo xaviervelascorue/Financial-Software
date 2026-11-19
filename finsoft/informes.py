@@ -172,3 +172,38 @@ def resumen_grupo(conn, ejercicio: int, t: int) -> dict:
     return {"ejercicio": ejercicio, "trimestre": t, "entidades": filas, "participaciones": estructura,
             "totales_agregados": totales,
             "nota": "Suma simple de entidades; no elimina operaciones ni dividendos intragrupo."}
+
+
+def provisiones_grupo(conn, ejercicio: int, t: int) -> dict:
+    """Por entidad: liquidaciones del trimestre (a pagar el mes siguiente) y provisión del impuesto anual
+    (Renta de cada autónomo, Impuesto sobre Sociedades de cada sociedad), con el total del grupo.
+    La CB no tributa por sí misma: su rendimiento ya está incluido en la Renta de sus comuneros."""
+    from .impuestos import estimacion_renta, irpf, iva, sociedades
+    filas = []
+    for e in listar_entidades(conn):
+        trimestral, detalle = 0, []
+        m303 = iva.modelo_303(conn, e, ejercicio, t)
+        if m303["obligado"] and m303["resultado"] > 0:
+            trimestral += m303["resultado"]
+            detalle.append(f"303 {m303['resultado'] / 100:,.2f}")
+        mods = [irpf.modelo_111(conn, e, ejercicio, t), irpf.modelo_115(conn, e, ejercicio, t),
+                irpf.modelo_123(conn, e, ejercicio, t)]
+        if e.tipo == "autonomo":
+            mods.append(irpf.modelo_130(conn, e, ejercicio, t))
+        for m in mods:
+            if m["presentar"] and m["resultado"] > 0:
+                trimestral += m["resultado"]
+                detalle.append(f"{m['modelo']} {m['resultado'] / 100:,.2f}")
+        if e.tipo == "autonomo":
+            est = estimacion_renta.estimar_renta(conn, e, ejercicio, t)
+            anual, concepto = est["provision_necesaria"], f"Renta {ejercicio} (tipo medio {est['tipo_medio_pct']} %)"
+        elif e.tipo == "sociedad":
+            est = sociedades.estimacion_is(conn, e, ejercicio)
+            anual, concepto = max(est["cuota_diferencial"], 0), f"Impuesto sobre Sociedades {ejercicio}"
+        else:
+            anual, concepto = 0, "Sin impuesto propio: se atribuye a los comuneros"
+        filas.append({"codigo": e.codigo, "nombre": e.nombre, "tipo": e.tipo, "trimestral": trimestral,
+                      "detalle_trimestral": ", ".join(detalle) or "—", "anual": anual, "concepto_anual": concepto,
+                      "total": trimestral + anual})
+    total = {k: sum(f[k] for f in filas) for k in ("trimestral", "anual", "total")}
+    return {"ejercicio": ejercicio, "trimestre": t, "entidades": filas, "total": total}

@@ -393,6 +393,37 @@ def cmd_anual(ctx, ejercicio, entidad, cerrar, salida, dias_alquilado, dias_uso_
         click.echo(f"✔ {cierre.paquete_anual(conn, e, ejercicio, salida, cerrar, dias_alquilado, dias_uso_propio)}")
 
 
+@main.command("provision-renta")
+@click.option("--entidad", required=True)
+@click.argument("ejercicio", type=int)
+@click.argument("t", type=click.IntRange(1, 4), default=4)
+@click.pass_context
+def cmd_provision_renta(ctx, entidad, ejercicio, t):
+    """Estimación de la Renta del año y provisión necesaria con los datos hasta el trimestre indicado."""
+    from .impuestos import estimacion_renta
+    e = _entidad(ctx, entidad)
+    if e.tipo != "autonomo":
+        raise click.ClickException("Sólo para autónomos")
+    est = estimacion_renta.estimar_renta(ctx.obj, e, ejercicio, t)
+    click.echo(f"\nRenta {ejercicio} · {e.nombre} · datos hasta {est['datos_hasta']}")
+    _tabla(estimacion_renta.filas(est), [("concepto", "Concepto"), ("importe", "Importe")], {"importe"})
+    click.echo(f"Tipo medio estimado: {est['tipo_medio_pct']} %")
+    for a in est["avisos"]:
+        click.secho(f"  ⚠ {a}", fg="yellow")
+
+
+@main.command("provisiones")
+@click.argument("ejercicio", type=int)
+@click.argument("t", type=click.IntRange(1, 4))
+@click.pass_context
+def cmd_provisiones(ctx, ejercicio, t):
+    """Provisiones de impuestos por entidad y total del grupo."""
+    pv = informes.provisiones_grupo(ctx.obj, ejercicio, t)
+    filas = pv["entidades"] + [{"nombre": "TOTAL GRUPO", **pv["total"]}]
+    _tabla(filas, [("nombre", "Entidad"), ("trimestral", f"Liquid. {t}T"), ("anual", "Impuesto anual"),
+                   ("total", "Total a apartar"), ("concepto_anual", "Concepto")], {"trimestral", "anual", "total"})
+
+
 @main.command("renta-cb")
 @click.option("--entidad", required=True, help="Comunero (p. ej. XVR)")
 @click.argument("ejercicio", type=int)

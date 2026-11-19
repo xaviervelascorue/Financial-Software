@@ -201,6 +201,10 @@ MIGRACIONES = [
     ("entidades", "valor_catastral_construccion", "INTEGER"),
     ("entidades", "catastral_revisado", "INTEGER NOT NULL DEFAULT 1"),
     ("lineas", "palabras", "TEXT"),
+    ("entidades", "anio_inicio_actividad", "INTEGER"),
+    ("entidades", "comunidad_autonoma", "TEXT NOT NULL DEFAULT 'madrid'"),
+    ("entidades", "otras_rentas", "INTEGER NOT NULL DEFAULT 0"),
+    ("entidades", "otras_retenciones", "INTEGER NOT NULL DEFAULT 0"),
 ]
 
 
