@@ -215,7 +215,8 @@ def leer_factura(conn, path: str | Path, entidad: Entidad, client=None) -> Factu
             from .entidades import sugerir_linea
             exenta = fi.tipo_operacion == "exenta" if any(r["iva_exento"] for r in ls) else None
             for ln in fi.lineas:
-                ln.linea = sugerir_linea(conn, entidad, ln.concepto, exenta)
+                # se busca en el concepto y en el nombre del cliente (p. ej. todo lo de un cliente a una línea)
+                ln.linea = sugerir_linea(conn, entidad, f"{ln.concepto} {fi.tercero_nombre}", exenta)
                 if ln.linea is None and ls:
                     fi.avisos.append(f"No se ha podido asignar la línea de ingresos a '{ln.concepto}'")
             return fi
