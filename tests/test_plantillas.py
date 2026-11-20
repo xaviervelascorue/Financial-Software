@@ -89,3 +89,19 @@ def test_exenta_y_linea_por_palabras(conn, tmp_path):
     assert p["cuota"] == 0 and p["retencion"] == Decimal("75.60") and p["total"] == Decimal("1004.40")
     fi2 = leer_factura(conn, plantilla_profesional(tmp_path / "c.xlsx", 100, cliente="Sin Nif SL"), x, client=object())
     assert fi2.lineas[0].linea == "CONSULT" and any("Falta el NIF" in a for a in fi2.avisos)
+
+
+def test_fecha_operacion_y_devengo(conn, aut1, tmp_path):
+    ruta = plantilla_profesional(tmp_path / "op.xlsx", 1000)
+    from openpyxl import load_workbook
+    wb = load_workbook(ruta)
+    ws = wb.active
+    ws["D4"] = datetime(2026, 10, 19)
+    ws["C5"], ws["D5"] = "FECHA OPERACIÓN:", datetime(2026, 9, 30)
+    wb.save(ruta)
+    fi = leer_plantilla(ruta)
+    assert fi.fecha == "2026-10-19" and fi.fecha_operacion == "2026-09-30"
+    assert any("día 16" in a for a in fi.avisos)
+    facturas.registrar(conn, aut1, fi)
+    assert iva.modelo_303(conn, aut1, 2026, 3)["casillas"]["07"] == 100000   # IVA en el 3T (devengo)
+    assert iva.modelo_303(conn, aut1, 2026, 4)["casillas"].get("07", 0) == 0

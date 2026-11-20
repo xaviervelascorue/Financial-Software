@@ -51,6 +51,25 @@ def _fecha(v) -> str:
     raise PlantillaError(f"Fecha no reconocida: {v!r}")
 
 
+def _fecha_operacion(celdas, pos, fecha_exp: str, avisos: list) -> str | None:
+    """Fecha de la operación si la plantilla la indica (celda "FECHA OPERACIÓN:"). Avisa si la factura se
+    emite después del día 16 del mes siguiente (plazo con clientes empresarios, art. 11 RD 1619/2012)."""
+    if not pos:
+        return None
+    valor = _a_la_derecha(celdas, pos)
+    if valor in (None, ""):
+        return None
+    fo = _fecha(valor)
+    if fo == fecha_exp:
+        return None
+    y, m = int(fo[:4]), int(fo[5:7])
+    limite = date(y + (m == 12), m % 12 + 1, 16).isoformat()
+    if fecha_exp > limite:
+        avisos.append(f"Factura emitida después del {limite[8:10]}/{limite[5:7]}: el plazo con empresas es el día 16 "
+                      "del mes siguiente a la operación")
+    return fo
+
+
 def leer_plantilla(path: str | Path, linea: str | None = None) -> FacturaInput | None:
     from openpyxl import load_workbook
     path = Path(path)
@@ -58,6 +77,7 @@ def leer_plantilla(path: str | Path, linea: str | None = None) -> FacturaInput |
     ws = next((w for w in wb.worksheets if w.sheet_state == "visible"), wb.worksheets[0])
     celdas = _celdas(ws)
     p_fecha, p_num = _buscar(celdas, r"^FECHA:?$"), _buscar(celdas, r"^N[ºO°]\.? ?DE FACTURA:?$")
+    p_oper = _buscar(celdas, r"^FECHA (DE (LA )?)?OPERACI[OÓ]N:?$")
     p_cli, p_desc = _buscar(celdas, r"^FACTURAR A:?$"), _buscar(celdas, r"^DESCRIPCI[OÓ]N$")
     p_iva, p_total = _buscar(celdas, r"^IVA\b"), _buscar(celdas, r"^TOTAL$")
     if not all((p_fecha, p_num, p_cli, p_desc, p_total)):
@@ -132,6 +152,7 @@ def leer_plantilla(path: str | Path, linea: str | None = None) -> FacturaInput |
         avisos.append(f"Falta el NIF de '{nombre}' en la factura (obligatorio si el cliente es empresa o profesional)")
     return FacturaInput(
         tipo="emitida", numero=numero, fecha=fecha, tercero_nif=nif_cliente, tercero_nombre=nombre,
+        fecha_operacion=_fecha_operacion(celdas, p_oper, fecha, avisos),
         lineas=[LineaFactura(base=b, tipo_iva=tipo_iva, concepto=ln["concepto"], cuota_iva=c, linea=linea)
                 for ln, b, c in zip(lineas, bases, cuotas)],
         tipo_operacion="exenta" if exenta else "interior",

@@ -37,7 +37,9 @@ def _lineas_periodo(conn, entidad, desde, hasta):
     return conn.execute(
         "SELECT f.id, f.tipo, f.tipo_operacion, f.bien_inversion, f.cuota_iva AS cuota_fra,"
         " f.cuota_deducible AS deducible_fra, l.base, l.tipo_iva, l.cuota_iva, l.deducible FROM facturas f"
-        " JOIN factura_lineas l ON l.factura_id=f.id WHERE f.entidad_id=? AND f.fecha BETWEEN ? AND ?",
+        " JOIN factura_lineas l ON l.factura_id=f.id WHERE f.entidad_id=?"
+        # emitidas: el IVA se devenga con la operación (art. 75 LIVA); recibidas: se deduce al recibir la factura
+        " AND (CASE WHEN f.tipo='emitida' THEN COALESCE(f.fecha_operacion, f.fecha) ELSE f.fecha END) BETWEEN ? AND ?",
         (entidad.id, desde, hasta),
     ).fetchall()
 
