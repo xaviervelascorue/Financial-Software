@@ -158,6 +158,20 @@ def factura_leer(ctx, entidad, fichero, si, sustituir):
     _leer_y_registrar(ctx.obj, _entidad(ctx, entidad), Path(fichero), si, sustituir)
 
 
+@factura.command("documentar")
+@click.option("--entidad", required=True)
+@click.argument("factura_id", type=int)
+@click.option("--fecha", default=lambda: date.today().isoformat(), help="Fecha de recepción de la factura")
+@click.pass_context
+def factura_documentar(ctx, entidad, factura_id, fecha):
+    """Se ha recibido la factura de un gasto registrado sin ella: deduce su IVA en el trimestre de recepción."""
+    try:
+        facturas.documentar(ctx.obj, _entidad(ctx, entidad), factura_id, fecha)
+    except ValueError as ex:
+        raise click.ClickException(str(ex))
+    click.echo("IVA deducido en el periodo de recepción")
+
+
 @factura.command("linea")
 @click.option("--entidad", required=True)
 @click.argument("factura_id", type=int)

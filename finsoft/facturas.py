@@ -58,6 +58,9 @@ class FacturaInput:
     avisos: list[str] = field(default_factory=list)
     # Suministros de la vivienda habitual parcialmente afecta (luz, gas, agua, internet)
     suministro_vivienda: bool = False
+    # Gasto sin factura completa (tique, cargo de tarjeta...): no se deduce el IVA (art. 97 LIVA) y el gasto
+    # se contabiliza por el total. Al recibir la factura, `documentar` deduce el IVA en ese trimestre.
+    sin_factura: bool = False
 
     @classmethod
     def from_dict(cls, d: dict) -> "FacturaInput":
@@ -116,6 +119,10 @@ def preparar(conn, entidad: Entidad, f: FacturaInput) -> dict:
         # % de IVA deducible: explícito en la línea > vivienda afecta > sectores diferenciados > régimen de la entidad
         en_prorrata = False
         pct_gasto = ln.pct_gasto
+        if f.sin_factura and f.tipo == "recibida":
+            pct_sf = 0.0
+        else:
+            pct_sf = None
         if f.suministro_vivienda and f.tipo == "recibida":
             sup = entidad.pct_superficie_afecta
             if not sup:
@@ -125,7 +132,9 @@ def preparar(conn, entidad: Entidad, f: FacturaInput) -> dict:
                 ln.pct_deducible = min(sup, entidad.pct_deduccion_iva)
             if pct_gasto is None:
                 pct_gasto = 30 * sup / 100
-        if ln.pct_deducible is not None:
+        if pct_sf is not None:
+            pct = pct_sf
+        elif ln.pct_deducible is not None:
             pct = ln.pct_deducible
         elif entidad.regimen_iva == "prorrata" and entidad.sectores_diferenciados and lid is not None:
             pct = 0.0 if exenta else 100.0
@@ -210,6 +219,45 @@ def eliminar(conn, entidad: Entidad, factura_id: int, commit: bool = True):
         conn.commit()
 
 
+def documentar(conn, entidad: Entidad, factura_id: int, fecha_recepcion: str) -> int | None:
+    """Se ha recibido la factura de un gasto contabilizado sin ella: deduce su IVA en el periodo de recepción
+    (303 casillas 40/41) y reduce el gasto en ese importe. Devuelve el id del asiento."""
+    f = conn.execute("SELECT * FROM facturas WHERE id=? AND entidad_id=?", (factura_id, entidad.id)).fetchone()
+    if f is None or not f["pendiente_documento"]:
+        raise ValueError("La factura no está marcada como pendiente de documento")
+    lns = conn.execute("SELECT fl.*, l.codigo AS linea_cod FROM factura_lineas fl LEFT JOIN lineas l"
+                       " ON l.id=fl.linea_id WHERE factura_id=?", (factura_id,)).fetchall()
+    t = conn.execute("SELECT * FROM terceros WHERE id=?", (f["tercero_id"],)).fetchone()
+    # suministro de vivienda afecta: su asiento lleva parte personal en la cuenta del titular
+    sumin = conn.execute("SELECT 1 FROM apuntes WHERE asiento_id=? AND cuenta LIKE '5500%'",
+                         (f["asiento_id"],)).fetchone() is not None
+    fi = FacturaInput("recibida", f["numero"], f["fecha"], t["nif"], t["nombre"],
+                      [LineaFactura(base=D(x["base"]) / 100, tipo_iva=D(str(x["tipo_iva"])),
+                                    cuota_iva=D(x["cuota_iva"]) / 100, cuenta=x["cuenta"], linea=x["linea_cod"])
+                       for x in lns], suministro_vivienda=sumin)
+    p = preparar(conn, entidad, fi)
+    conn.rollback()
+    aid = None
+    if p["deducible"]:
+        ap = [Apunte("4720", debe=p["deducible"])]
+        for x in p["lineas"]:
+            if x["deducible"]:
+                # el IVA que ahora se deduce deja de ser gasto (y, en suministros, deja de ser gasto personal)
+                parte_gasto = r2(x["deducible"] * x["gasto"] / (x["gasto"] + x["personal"])) if sumin else x["deducible"]
+                ap.append(Apunte(x["cuenta"], haber=parte_gasto, linea_id=x["linea_id"]))
+                if x["deducible"] - parte_gasto:
+                    ap.append(Apunte("5500", haber=x["deducible"] - parte_gasto))
+        aid = crear_asiento(conn, entidad, fecha_recepcion, f"IVA deducible al recibir la fra. {f['numero']}", ap,
+                            origen="ajuste_iva", commit=False)
+        base_ded = sum((x["base"] * x["deducible"] / x["cuota"] for x in p["lineas"] if x["cuota"]), Decimal("0"))
+        conn.execute("INSERT INTO ajustes_iva (entidad_id, fecha, factura_id, base, cuota) VALUES (?,?,?,?,?)",
+                     (entidad.id, fecha_recepcion, factura_id, to_cents(base_ded), to_cents(p["deducible"])))
+    conn.execute("UPDATE facturas SET pendiente_documento=0, concepto=REPLACE(concepto, ' [PENDIENTE FACTURA]', '')"
+                 " WHERE id=?", (factura_id,))
+    conn.commit()
+    return aid
+
+
 def asignar_linea(conn, entidad: Entidad, factura_id: int, linea: str | None):
     """Cambia la línea de ingreso/negocio de una factura ya contabilizada (líneas y apuntes de gasto/ingreso)."""
     from .entidades import linea_id as _lid
@@ -260,6 +308,8 @@ def registrar(conn, entidad: Entidad, f: FacturaInput, sustituir: bool = False) 
         [(fid, x["concepto"], to_cents(x["base"]), float(x["tipo_iva"]), to_cents(x["cuota"]), x["cuenta"],
           x["linea_id"], to_cents(x["deducible"]), int(x["prorrata"])) for x in p["lineas"]],
     )
+    if f.sin_factura and f.tipo == "recibida":
+        conn.execute("UPDATE facturas SET pendiente_documento=1 WHERE id=?", (fid,))
     # Retenciones practicadas por la entidad (111 / 115)
     if f.tipo == "recibida" and p["retencion"]:
         modelo, clave = {"profesional": ("111", "G"), "actividad": ("111", "H"),

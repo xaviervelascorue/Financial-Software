@@ -319,3 +319,29 @@ def test_asignar_linea_a_factura(conn, aut1):
     facturas.asignar_linea(conn, aut1, fid, "SERV")
     r = {x["codigo"]: x for x in informes.rentabilidad_por_linea(conn, aut1, "2026-07-01", "2026-07-31")["lineas"]}
     assert r["SERV"]["costes_directos"] == 10000  # IVA deducible: no es coste
+
+
+def test_gasto_sin_factura_y_documentar(conn, aut1):
+    f = fra("recibida", "TJ-1", "2026-02-10", "", "Meta", [dict(base=Decimal("100"), cuenta="6270")], sin_factura=True)
+    fid = facturas.registrar(conn, aut1, f)
+    assert ledger.saldo(conn, aut1, "6270") == 12100 and ledger.saldo(conn, aut1, "4720") == 0
+    assert iva.modelo_303(conn, aut1, 2026, 1)["casillas"].get("29", 0) == 0
+    facturas.documentar(conn, aut1, fid, "2026-11-05")
+    assert ledger.saldo(conn, aut1, "6270") == 10000 and ledger.saldo(conn, aut1, "4720") == 2100
+    c4 = iva.modelo_303(conn, aut1, 2026, 4)["casillas"]
+    assert c4["40"] == 10000 and c4["41"] == 2100 and c4["45"] == 2100
+    with pytest.raises(ValueError):
+        facturas.documentar(conn, aut1, fid, "2026-11-06")
+
+
+def test_suministro_sin_factura_y_documentar(conn, aut1):
+    from finsoft.entidades import actualizar_entidad, get_entidad
+    actualizar_entidad(conn, aut1, {"pct_superficie_afecta": 20})
+    a = get_entidad(conn, "AUT1")
+    fi = FacturaInput("recibida", "L1", "2026-07-01", "", "Eléctrica", [LineaFactura(base=Decimal("100"), cuenta="6280")],
+                      suministro_vivienda=True, sin_factura=True)
+    fid = facturas.registrar(conn, a, fi)
+    assert ledger.saldo(conn, a, "6280") == round(12100 * 0.06)       # 30 % × 20 % del total con IVA
+    facturas.documentar(conn, a, fid, "2026-10-01")
+    assert ledger.saldo(conn, a, "4720") == 420                        # 20 % del IVA
+    assert ledger.saldo(conn, a, "6280") == 726 - 25                   # el IVA deducido deja de ser gasto

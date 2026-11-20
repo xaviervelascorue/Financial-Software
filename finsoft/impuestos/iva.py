@@ -24,6 +24,7 @@ NOMBRES_303 = {
     "34": "Importaciones bienes de inversión: base", "35": "Cuota deducible",
     "36": "Adquisiciones intracomunitarias bienes y servicios corrientes: base", "37": "Cuota deducible",
     "38": "Adquisiciones intracomunitarias bienes de inversión: base", "39": "Cuota deducible",
+    "40": "Rectificación de deducciones: base", "41": "Rectificación de deducciones: cuota",
     "44": "Regularización por aplicación del porcentaje definitivo de prorrata", "45": "Total a deducir", "46": "Resultado régimen general",
     "59": "Entregas intracomunitarias de bienes y servicios", "60": "Exportaciones y operaciones asimiladas",
     "120": "Operaciones no sujetas por reglas de localización", "122": "Operaciones sujetas con inversión del sujeto pasivo",
@@ -88,7 +89,12 @@ def _calcular(conn, entidad, desde, hasta) -> dict:
                 c[k[0]] += base_ded
                 c[k[1]] += ded
     c["27"] = sum(c[k] for k in ("03", "06", "09", "152", "11", "13"))
-    c["45"] = sum(c[k] for k in ("29", "31", "33", "35", "37", "39", "44"))
+    # Rectificación de deducciones: IVA de gastos cuya factura se ha recibido en este periodo
+    aj = conn.execute("SELECT COALESCE(SUM(base),0), COALESCE(SUM(cuota),0) FROM ajustes_iva WHERE entidad_id=?"
+                      " AND fecha BETWEEN ? AND ?", (entidad.id, desde, hasta)).fetchone()
+    if aj[1]:
+        c["40"], c["41"] = aj[0], aj[1]
+    c["45"] = sum(c[k] for k in ("29", "31", "33", "35", "37", "39", "41", "44"))
     c["46"] = c["27"] - c["45"]
     return {"casillas": c, "otros_tipos": sorted(otros_tipos)}
 

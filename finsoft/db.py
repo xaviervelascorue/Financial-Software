@@ -186,6 +186,16 @@ CREATE TABLE IF NOT EXISTS liquidaciones (
     UNIQUE (entidad_id, modelo, ejercicio, periodo)
 );
 
+-- IVA deducido al recibir la factura de un gasto contabilizado antes sin ella (303, casillas 40/41)
+CREATE TABLE IF NOT EXISTS ajustes_iva (
+    id INTEGER PRIMARY KEY,
+    entidad_id INTEGER NOT NULL REFERENCES entidades(id),
+    fecha TEXT NOT NULL,
+    factura_id INTEGER REFERENCES facturas(id),
+    base INTEGER NOT NULL,
+    cuota INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS activos (
     id INTEGER PRIMARY KEY,
     entidad_id INTEGER NOT NULL REFERENCES entidades(id),
@@ -230,6 +240,7 @@ MIGRACIONES = [
     ("facturas", "referencia_cobro", "TEXT"),
     ("facturas", "fecha_hora_expedicion", "TEXT"),
     ("entidades", "domicilio", "TEXT"),
+    ("facturas", "pendiente_documento", "INTEGER NOT NULL DEFAULT 0"),
 ]
 
 
